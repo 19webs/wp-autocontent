@@ -1,0 +1,9 @@
+# Archivos de despliegue local (no subir a GitHub)
+subir.bat
+subir.ps1
+
+# Archivos de sistema y temporales
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
