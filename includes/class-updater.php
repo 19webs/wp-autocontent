@@ -131,7 +131,7 @@ class WP_Autocontent_Updater {
 	}
 
 	/**
-	 * Consulta la API de GitHub para obtener la última versión lanzada.
+	 * Consulta la API de GitHub para obtener la última versión lanzada (vía releases o tags).
 	 *
 	 * @return array|WP_Error Datos de la release o error.
 	 */
@@ -142,6 +142,7 @@ class WP_Autocontent_Updater {
 			return $cached;
 		}
 
+		// 1. Intentar consultar releases/latest
 		$url      = sprintf( 'https://api.github.com/repos/%s/releases/latest', $this->github_repo );
 		$response = wp_remote_get(
 			$url,
@@ -154,22 +155,52 @@ class WP_Autocontent_Updater {
 			)
 		);
 
-		if ( is_wp_error( $response ) ) {
-			return $response;
+		if ( ! is_wp_error( $response ) ) {
+			$code = wp_remote_retrieve_response_code( $response );
+			$body = wp_remote_retrieve_body( $response );
+
+			if ( 200 === $code && ! empty( $body ) ) {
+				$data = json_decode( $body, true );
+				if ( is_array( $data ) && ! empty( $data['tag_name'] ) ) {
+					set_transient( $cache_key, $data, 300 );
+					return $data;
+				}
+			}
 		}
 
-		$code = wp_remote_retrieve_response_code( $response );
-		if ( 200 !== $code ) {
-			return new WP_Error( 'github_api_error', sprintf( __( 'No se encontró una versión en GitHub (HTTP %d).', 'wp-autocontent' ), $code ) );
+		// 2. Fallback: Si no hay release formal creada en GitHub UI, consultar la lista de etiquetas Git (tags)
+		$tags_url = sprintf( 'https://api.github.com/repos/%s/tags', $this->github_repo );
+		$tags_res = wp_remote_get(
+			$tags_url,
+			array(
+				'headers' => array(
+					'User-Agent' => 'WordPress/WP-Autocontent-Updater',
+					'Accept'     => 'application/vnd.github.v3+json',
+				),
+				'timeout' => 10,
+			)
+		);
+
+		if ( ! is_wp_error( $tags_res ) ) {
+			$code = wp_remote_retrieve_response_code( $tags_res );
+			$body = wp_remote_retrieve_body( $tags_res );
+
+			if ( 200 === $code && ! empty( $body ) ) {
+				$tags = json_decode( $body, true );
+				if ( is_array( $tags ) && ! empty( $tags[0]['name'] ) ) {
+					$latest_tag = $tags[0]['name'];
+					$data       = array(
+						'tag_name'    => $latest_tag,
+						'zipball_url' => sprintf( 'https://github.com/%s/archive/refs/tags/%s.zip', $this->github_repo, $latest_tag ),
+						'body'        => 'Actualización v' . ltrim( $latest_tag, 'v' ) . ' publicada en GitHub.',
+					);
+					set_transient( $cache_key, $data, 300 );
+					return $data;
+				}
+			}
 		}
 
-		$data = json_decode( wp_remote_retrieve_body( $response ), true );
-		if ( ! is_array( $data ) || empty( $data['tag_name'] ) ) {
-			return new WP_Error( 'invalid_response', __( 'Respuesta de GitHub no válida.', 'wp-autocontent' ) );
-		}
-
-		set_transient( $cache_key, $data, 6 * HOUR_IN_SECONDS );
-		return $data;
+		return new WP_Error( 'no_releases_found', __( 'Aún no se ha publicado ninguna versión en GitHub. Ejecuta el archivo subir.bat para publicar la primera versión.', 'wp-autocontent' ) );
 	}
 
 	/**

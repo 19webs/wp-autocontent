@@ -3,7 +3,7 @@
  * Plugin Name:       WP autocontent
  * Plugin URI:        https://19webs.com
  * Description:       Reemplaza automáticamente textos e imágenes de relleno (Lorem Ipsum) en páginas maquetadas con Elementor usando Web Scraping o las APIs de Google Gemini 1.5 Flash y Pexels.
- * Version:     1.0.2
+ * Version:     1.0.3
  * Author:            19webs
  * Author URI:        https://19webs.com
  * Text Domain:       wp-autocontent
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Definición de constantes del plugin
-define( 'WP_AUTOCONTENT_VERSION', '1.0.2' );
+define( 'WP_AUTOCONTENT_VERSION', '1.0.3' );
 define( 'WP_AUTOCONTENT_FILE', __FILE__ );
 define( 'WP_AUTOCONTENT_PATH', plugin_dir_path( __FILE__ ) );
 define( 'WP_AUTOCONTENT_URL', plugin_dir_url( __FILE__ ) );

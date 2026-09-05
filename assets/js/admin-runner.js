@@ -446,6 +446,10 @@ jQuery(document).ready(function ($) {
 		var line = $('<div class="wpac-log-line ' + typeClass + '"></div>')
 			.html('[' + timestamp + '] ' + message);
 
+		logConsole.append(line);
+		logConsole.scrollTop(logConsole[0].scrollHeight);
+	}
+
 	// 5. Comprobar Actualizaciones desde GitHub
 	$(document).on('click', '#wpac-check-update-btn', function (e) {
 		e.preventDefault();
@@ -453,7 +457,7 @@ jQuery(document).ready(function ($) {
 		var $status = $('#wpac-update-status');
 
 		$btn.prop('disabled', true).find('.dashicons').addClass('wpac-spin');
-		$status.html('Consultando GitHub...').css('color', '#c7d2fe');
+		$status.html('<span class="wpac-spinner wpac-spinner-dark"></span> Consultando GitHub...').css('color', '#c7d2fe');
 
 		$.ajax({
 			url: WPAutocontent.ajax_url,
@@ -467,12 +471,12 @@ jQuery(document).ready(function ($) {
 				if (response.success) {
 					$status.html(response.data.message).css('color', response.data.has_update ? '#4ade80' : '#e0f2fe');
 				} else {
-					$status.text(response.data.message || 'Error al comprobar').css('color', '#f87171');
+					$status.html('⚠️ ' + (response.data.message || 'Error al comprobar')).css('color', '#f87171');
 				}
 			},
 			error: function (xhr, status, error) {
 				$btn.prop('disabled', false).find('.dashicons').removeClass('wpac-spin');
-				$status.text('Error de conexión.').css('color', '#f87171');
+				$status.html('🔴 Error de conexión con el servidor: ' + error).css('color', '#f87171');
 			}
 		});
 	});
