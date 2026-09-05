@@ -280,4 +280,102 @@ class WP_Autocontent_Gemini_Client {
 
 		return is_wp_error( $last_error ) ? $last_error : new WP_Error( 'gemini_failed', __( 'No se pudo conectar con la API de Gemini.', 'wp-autocontent' ) );
 	}
+
+	/**
+	 * Genera un artículo de blog completo optimizado para SEO basado en una temática.
+	 *
+	 * @param string $topic Temática o prompt del artículo.
+	 * @param string $tone Tono de comunicación.
+	 * @return array|WP_Error Array con 'title', 'excerpt', 'keyword_for_images', y 'sections' o WP_Error.
+	 */
+	public function generate_blog_article( string $topic, string $tone = 'Profesional y cercano' ) {
+		if ( empty( $this->api_key ) ) {
+			return new WP_Error( 'missing_api_key', __( 'No se ha configurado la API Key de Google Gemini.', 'wp-autocontent' ) );
+		}
+
+		$models_to_try = $this->discover_active_models();
+
+		$prompt = sprintf(
+			'Actúa como un redactor SEO y copywriter profesional en ESPAÑOL. Escribe un artículo de blog exhaustivo, interesante y optimizado sobre el tema: "%s" con un tono "%s". ' .
+			'El artículo debe constar de 3 a 5 secciones bien desarrolladas. ' .
+			'Debes devolver ÚNICAMENTE un objeto JSON estricto con el siguiente esquema exacto: ' .
+			'{"title": "Título SEO atrayente", "excerpt": "Extracto/Resumen corto del post de 140-160 caracteres", "keyword_for_images": "palabra clave en ingles para buscar foto principal", "sections": [{"heading": "Subtítulo H2 de la sección", "content": "Texto amplio y detallado de la sección...", "image_keyword": "palabra clave en ingles para foto de esta seccion"}]}',
+			sanitize_text_field( $topic ),
+			sanitize_text_field( $tone )
+		);
+
+		$last_error = null;
+
+		foreach ( $models_to_try as $model_path ) {
+			$base_url = 'https://generativelanguage.googleapis.com/v1beta/' . ltrim( $model_path, '/' ) . ':generateContent';
+			$endpoint = add_query_arg( 'key', $this->api_key, $base_url );
+
+			$payload = array(
+				'contents'         => array(
+					array(
+						'parts' => array(
+							array( 'text' => $prompt ),
+						),
+					),
+				),
+				'generationConfig' => array(
+					'responseMimeType' => 'application/json',
+					'temperature'      => 0.7,
+				),
+			);
+
+			$args = array(
+				'headers' => array( 'Content-Type' => 'application/json' ),
+				'body'    => wp_json_encode( $payload ),
+				'timeout' => 35,
+			);
+
+			$response = wp_remote_post( $endpoint, $args );
+
+			if ( is_wp_error( $response ) ) {
+				$last_error = $response;
+				continue;
+			}
+
+			$code = wp_remote_retrieve_response_code( $response );
+			$body = wp_remote_retrieve_body( $response );
+
+			if ( 200 !== $code ) {
+				$json_err   = json_decode( $body, true );
+				$err_msg    = isset( $json_err['error']['message'] ) ? $json_err['error']['message'] : sprintf( __( 'Error HTTP de Gemini (%d)', 'wp-autocontent' ), $code );
+				$last_error = new WP_Error( 'gemini_api_error', $err_msg );
+				continue;
+			}
+
+			$data = json_decode( $body, true );
+			if ( empty( $data['candidates'][0]['content']['parts'][0]['text'] ) ) {
+				$last_error = new WP_Error( 'gemini_empty_response', __( 'Gemini no devolvió un resultado válido.', 'wp-autocontent' ) );
+				continue;
+			}
+
+			$raw_text = trim( $data['candidates'][0]['content']['parts'][0]['text'] );
+
+			if ( preg_match( '/```(?:json)?\s*(\{.*?\})\s*```/s', $raw_text, $matches ) ) {
+				$raw_text = $matches[1];
+			} elseif ( preg_match( '/\{.*\}/s', $raw_text, $matches ) ) {
+				$raw_text = $matches[0];
+			}
+
+			$article = json_decode( $raw_text, true );
+
+			if ( ! is_array( $article ) || empty( $article['title'] ) || empty( $article['sections'] ) ) {
+				$last_error = new WP_Error( 'gemini_invalid_json', __( 'El formato JSON devuelto por Gemini no coincide con el esquema del artículo de blog.', 'wp-autocontent' ) );
+				continue;
+			}
+
+			return array(
+				'title'              => sanitize_text_field( $article['title'] ),
+				'excerpt'            => isset( $article['excerpt'] ) ? sanitize_text_field( $article['excerpt'] ) : '',
+				'keyword_for_images' => isset( $article['keyword_for_images'] ) ? sanitize_text_field( $article['keyword_for_images'] ) : 'blog',
+				'sections'           => (array) $article['sections'],
+			);
+		}
+
+		return is_wp_error( $last_error ) ? $last_error : new WP_Error( 'gemini_failed', __( 'No se pudo generar el artículo de blog con Gemini.', 'wp-autocontent' ) );
+	}
 }

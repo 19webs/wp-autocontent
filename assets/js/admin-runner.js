@@ -514,4 +514,308 @@ jQuery(document).ready(function ($) {
 			}
 		});
 	});
+
+	// ==========================================
+	// 6. PESTAÑA 3: REEMPLAZO QUIRÚRGICO DE IMÁGENES
+	// ==========================================
+	var swapperPage = 1;
+	var activePostId = 0;
+	var activeImageKey = '';
+
+	function loadSwapperItems() {
+		var postType = $('#wpac-swapper-post-type').val() || 'all';
+		var search = ($('#wpac-swapper-search').val() || '').trim();
+		var $tbody = $('#wpac-swapper-tbody');
+
+		$tbody.html('<tr><td colspan="5"><span class="wpac-spinner wpac-spinner-dark"></span> Cargando contenidos...</td></tr>');
+
+		$.ajax({
+			url: WPAutocontent.ajax_url,
+			type: 'POST',
+			data: {
+				action: 'wp_autocontent_get_content_items',
+				nonce: WPAutocontent.nonce,
+				post_type: postType,
+				search: search,
+				page: swapperPage
+			},
+			success: function (response) {
+				if (!response.success) {
+					$tbody.html('<tr><td colspan="5">Error al cargar contenidos: ' + response.data.message + '</td></tr>');
+					return;
+				}
+
+				var items = response.data.items || [];
+				if (items.length === 0) {
+					$tbody.html('<tr><td colspan="5">No se encontraron páginas o entradas.</td></tr>');
+					$('#wpac-swapper-pagination-info').text('0 elementos');
+					$('#wpac-swapper-prev-page, #wpac-swapper-next-page').prop('disabled', true);
+					return;
+				}
+
+				var html = '';
+				$.each(items, function (idx, item) {
+					html += '<tr>';
+					html += '<td><strong>' + item.title + '</strong></td>';
+					html += '<td><span class="wpac-badge wpac-badge-info">' + item.post_type + '</span></td>';
+					html += '<td><span class="wpac-status-pill status-' + item.status + '">' + item.status + '</span></td>';
+					html += '<td><code>#' + item.ID + '</code></td>';
+					html += '<td style="text-align: right;"><button type="button" class="button button-small wpac-inspect-btn" data-id="' + item.ID + '"><span class="dashicons dashicons-search"></span> Inspeccionar fotos</button></td>';
+					html += '</tr>';
+				});
+
+				$tbody.html(html);
+				$('#wpac-swapper-pagination-info').text('Página ' + response.data.current_page + ' de ' + response.data.total_pages + ' (' + response.data.total_items + ' total)');
+				$('#wpac-swapper-prev-page').prop('disabled', response.data.current_page <= 1);
+				$('#wpac-swapper-next-page').prop('disabled', response.data.current_page >= response.data.total_pages);
+			},
+			error: function () {
+				$tbody.html('<tr><td colspan="5">Error de servidor al cargar lista.</td></tr>');
+			}
+		});
+	}
+
+	// Al hacer clic en la pestaña de reemplazo de imágenes, cargar la tabla
+	$(document).on('click', '.wpac-tab-btn[data-tab="tab-image-swapper"]', function () {
+		swapperPage = 1;
+		loadSwapperItems();
+	});
+
+	$('#wpac-swapper-post-type').on('change', function () {
+		swapperPage = 1;
+		loadSwapperItems();
+	});
+
+	$('#wpac-swapper-search').on('input', function () {
+		swapperPage = 1;
+		loadSwapperItems();
+	});
+
+	$('#wpac-swapper-prev-page').on('click', function (e) {
+		e.preventDefault();
+		if (swapperPage > 1) {
+			swapperPage--;
+			loadSwapperItems();
+		}
+	});
+
+	$('#wpac-swapper-next-page').on('click', function (e) {
+		e.preventDefault();
+		swapperPage++;
+		loadSwapperItems();
+	});
+
+	// Inspeccionar Imágenes de un Post Seleccionado
+	$(document).on('click', '.wpac-inspect-btn', function (e) {
+		e.preventDefault();
+		var postId = $(this).data('id');
+		activePostId = postId;
+		var $inspector = $('#wpac-inspector-container');
+		var $grid = $('#wpac-inspector-grid');
+
+		$inspector.removeClass('wpac-hidden');
+		$('#wpac-inspector-title').html('<span class="wpac-spinner wpac-spinner-dark"></span> Inspeccionando imágenes del ID #' + postId + '...');
+		$grid.html('<p><span class="wpac-spinner wpac-spinner-dark"></span> Analizando imágenes del post...</p>');
+
+		$('html, body').animate({ scrollTop: $inspector.offset().top - 40 }, 400);
+
+		$.ajax({
+			url: WPAutocontent.ajax_url,
+			type: 'POST',
+			data: {
+				action: 'wp_autocontent_scan_post_images',
+				nonce: WPAutocontent.nonce,
+				post_id: postId
+			},
+			success: function (response) {
+				if (!response.success) {
+					$grid.html('<p class="wpac-error">Error: ' + response.data.message + '</p>');
+					return;
+				}
+
+				$('#wpac-inspector-title').text('Imágenes en "' + response.data.post_title + '" (ID #' + postId + ')');
+				var images = response.data.images || [];
+
+				if (images.length === 0) {
+					$grid.html('<p>No se detectaron imágenes o widgets de imagen en esta página/entrada.</p>');
+					return;
+				}
+
+				var html = '';
+				$.each(images, function (idx, img) {
+					html += '<div class="wpac-image-card">';
+					html += '<div class="wpac-card-badge">' + img.type + '</div>';
+					html += '<img src="' + img.url + '" alt="Imagen" class="wpac-card-thumb" />';
+					html += '<div class="wpac-card-info">';
+					html += '<strong>' + img.context + '</strong>';
+					html += '</div>';
+					html += '<button type="button" class="button button-primary button-small wpac-trigger-swap-btn" data-key="' + img.key + '" data-url="' + img.url + '"><span class="dashicons dashicons-update"></span> Reemplazar foto</button>';
+					html += '</div>';
+				});
+
+				$grid.html(html);
+			},
+			error: function () {
+				$grid.html('<p class="wpac-error">Error de servidor al escanear imágenes.</p>');
+			}
+		});
+	});
+
+	$('#wpac-close-inspector-btn').on('click', function (e) {
+		e.preventDefault();
+		$('#wpac-inspector-container').addClass('wpac-hidden');
+	});
+
+	// Abrir Modal de Búsqueda de Foto de Reemplazo
+	$(document).on('click', '.wpac-trigger-swap-btn', function (e) {
+		e.preventDefault();
+		activeImageKey = $(this).data('key');
+		$('#wpac-replacement-modal').removeClass('wpac-hidden');
+		$('#wpac-modal-search-kw').val('').focus();
+		$('#wpac-modal-candidates-grid').html('<p class="description">Haz clic en Buscar Fotos para ver opciones en alta resolución.</p>');
+	});
+
+	$('#wpac-close-modal-btn').on('click', function (e) {
+		e.preventDefault();
+		$('#wpac-replacement-modal').addClass('wpac-hidden');
+	});
+
+	$('#wpac-modal-search-btn').on('click', function (e) {
+		e.preventDefault();
+		var kw = ($('#wpac-modal-search-kw').val() || '').trim();
+		if (!kw) {
+			alert('Ingresa un término de búsqueda.');
+			return;
+		}
+
+		var $grid = $('#wpac-modal-candidates-grid');
+		$grid.html('<p><span class="wpac-spinner wpac-spinner-dark"></span> Buscando imágenes en alta resolución...</p>');
+
+		$.ajax({
+			url: WPAutocontent.ajax_url,
+			type: 'POST',
+			data: {
+				action: 'wp_autocontent_search_replacement_images',
+				nonce: WPAutocontent.nonce,
+				keyword: kw,
+				provider: 'pexels'
+			},
+			success: function (response) {
+				if (!response.success) {
+					$grid.html('<p class="wpac-error">' + response.data.message + '</p>');
+					return;
+				}
+
+				var photos = response.data.images || [];
+				if (photos.length === 0) {
+					$grid.html('<p>No se encontraron resultados.</p>');
+					return;
+				}
+
+				var html = '';
+				$.each(photos, function (idx, item) {
+					html += '<div class="wpac-candidate-card" data-id="' + item.id + '" data-url="' + item.url + '">';
+					html += '<img src="' + item.url + '" alt="Candidata" />';
+					html += '<button type="button" class="button button-small button-primary wpac-select-candidate-btn">Seleccionar</button>';
+					html += '</div>';
+				});
+
+				$grid.html(html);
+			},
+			error: function () {
+				$grid.html('<p class="wpac-error">Error de red al buscar imágenes.</p>');
+			}
+		});
+	});
+
+	// Aplicar la foto elegida del modal
+	$(document).on('click', '.wpac-select-candidate-btn', function (e) {
+		e.preventDefault();
+		var $card = $(this).closest('.wpac-candidate-card');
+		var newId = $card.data('id');
+		var newUrl = $card.data('url');
+
+		if (!activePostId || !activeImageKey || !newUrl) {
+			alert('Error en los parámetros de reemplazo.');
+			return;
+		}
+
+		$(this).prop('disabled', true).text('Aplicando...');
+
+		$.ajax({
+			url: WPAutocontent.ajax_url,
+			type: 'POST',
+			data: {
+				action: 'wp_autocontent_apply_image_replacement',
+				nonce: WPAutocontent.nonce,
+				post_id: activePostId,
+				image_key: activeImageKey,
+				new_id: newId,
+				new_url: newUrl
+			},
+			success: function (response) {
+				$('#wpac-replacement-modal').addClass('wpac-hidden');
+				if (response.success) {
+					alert('✅ ' + response.data.message);
+					// Re-inspeccionar la página para reflejar el cambio
+					$('.wpac-inspect-btn[data-id="' + activePostId + '"]').trigger('click');
+				} else {
+					alert('🔴 Error: ' + response.data.message);
+				}
+			},
+			error: function (xhr, status, error) {
+				$('#wpac-replacement-modal').addClass('wpac-hidden');
+				alert('🔴 Error de servidor: ' + error);
+			}
+		});
+	});
+
+	// ==========================================
+	// 7. PESTAÑA 4: GENERADOR DE BLOG CON IA
+	// ==========================================
+	$('#wpac-generate-blog-btn').on('click', function (e) {
+		e.preventDefault();
+		var $btn = $(this);
+		var topic = ($('#blog_topic').val() || '').trim();
+		var tone = $('#blog_tone').val() || 'Profesional y cercano';
+		var status = $('#blog_status').val() || 'draft';
+		var includeFeatured = $('#blog_include_featured').is(':checked') ? 1 : 0;
+		var includeBody = $('#blog_include_body_images').is(':checked') ? 1 : 0;
+
+		if (!topic) {
+			alert('Por favor, escribe una temática o prompt para el artículo de blog.');
+			return;
+		}
+
+		$btn.prop('disabled', true).html('<span class="wpac-spinner"></span> Generando artículo con Gemini IA...');
+		$('#wpac-blog-status-container').removeClass('wpac-hidden');
+		$('#wpac-blog-status-text').removeClass('status-success status-error').addClass('status-testing').html('<span class="wpac-spinner wpac-spinner-dark"></span> Redactando post e inyectando fotos de stock...');
+
+		$.ajax({
+			url: WPAutocontent.ajax_url,
+			type: 'POST',
+			data: {
+				action: 'wp_autocontent_generate_blog_post',
+				nonce: WPAutocontent.nonce,
+				topic: topic,
+				tone: tone,
+				status: status,
+				include_featured: includeFeatured,
+				include_body_images: includeBody
+			},
+			success: function (response) {
+				$btn.prop('disabled', false).html('<span class="dashicons dashicons-admin-post"></span> Generar y Publicar Artículo de Blog con IA');
+				if (response.success) {
+					$('#wpac-blog-status-text').removeClass('status-testing status-error').addClass('status-success').html(response.data.message);
+					$('#blog_topic').val('');
+				} else {
+					$('#wpac-blog-status-text').removeClass('status-testing status-success').addClass('status-error').html('🔴 Error: ' + response.data.message);
+				}
+			},
+			error: function (xhr, status, error) {
+				$btn.prop('disabled', false).html('<span class="dashicons dashicons-admin-post"></span> Generar y Publicar Artículo de Blog con IA');
+				$('#wpac-blog-status-text').removeClass('status-testing status-success').addClass('status-error').html('🔴 Error de servidor: ' + error);
+			}
+		});
+	});
 });

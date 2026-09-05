@@ -31,6 +31,11 @@ class WP_Autocontent_Admin_Settings {
 		add_action( 'wp_ajax_wp_autocontent_test_single_key', array( $this, 'ajax_test_single_key' ) );
 		add_action( 'wp_ajax_wp_autocontent_prepare_pool', array( $this, 'ajax_prepare_pool' ) );
 		add_action( 'wp_ajax_wp_autocontent_process_page', array( $this, 'ajax_process_page' ) );
+		add_action( 'wp_ajax_wp_autocontent_get_content_items', array( $this, 'ajax_get_content_items' ) );
+		add_action( 'wp_ajax_wp_autocontent_scan_post_images', array( $this, 'ajax_scan_post_images' ) );
+		add_action( 'wp_ajax_wp_autocontent_search_replacement_images', array( $this, 'ajax_search_replacement_images' ) );
+		add_action( 'wp_ajax_wp_autocontent_apply_image_replacement', array( $this, 'ajax_apply_image_replacement' ) );
+		add_action( 'wp_ajax_wp_autocontent_generate_blog_post', array( $this, 'ajax_generate_blog_post' ) );
 	}
 
 	/**
@@ -163,13 +168,19 @@ class WP_Autocontent_Admin_Settings {
 				</div>
 			</div>
 
-			<!-- Barra de Pestañas Segmentada (Solo 2 pestañas para Origen y Páginas) -->
+			<!-- Barra de Pestañas Segmentada -->
 			<nav class="wpac-tabs-nav">
 				<button type="button" class="wpac-tab-btn active" data-tab="tab-content">
 					<span class="dashicons dashicons-welcome-write-blog"></span> Origen del Contenido
 				</button>
 				<button type="button" class="wpac-tab-btn" data-tab="tab-runner">
 					<span class="dashicons dashicons-admin-page"></span> Selector de Páginas y Ejecución
+				</button>
+				<button type="button" class="wpac-tab-btn" data-tab="tab-image-swapper">
+					<span class="dashicons dashicons-format-image"></span> Reemplazo de Imágenes
+				</button>
+				<button type="button" class="wpac-tab-btn" data-tab="tab-blog-generator">
+					<span class="dashicons dashicons-admin-post"></span> Generador de Blog IA
 				</button>
 			</nav>
 
@@ -376,6 +387,140 @@ class WP_Autocontent_Admin_Settings {
 					</div>
 				</div>
 
+				<!-- PESTAÑA 3: REEMPLAZO QUIRÚRGICO DE IMÁGENES -->
+				<div id="tab-image-swapper" class="wpac-tab-pane">
+					<div class="wpac-card wpac-full-width">
+						<h2><span class="dashicons dashicons-format-image"></span> Reemplazo Quirúrgico de Imágenes Individuales</h2>
+						<p class="description">Inspecciona las imágenes de cualquier página o entrada (Elementor, imagen destacada o contenido) y reemplaza fotos individuales con imágenes en alta resolución según temática.</p>
+
+						<div class="wpac-table-header-controls">
+							<div class="wpac-filter-group">
+								<label for="wpac-swapper-post-type"><strong>Filtrar tipo:</strong></label>
+								<select id="wpac-swapper-post-type">
+									<option value="all">Todas (Páginas y Entradas)</option>
+									<option value="page">Solo Páginas</option>
+									<option value="post">Solo Entradas de Blog</option>
+								</select>
+							</div>
+							<div class="wpac-search-box">
+								<span class="dashicons dashicons-search"></span>
+								<input type="text" id="wpac-swapper-search" placeholder="Buscar por título o ID..." />
+							</div>
+						</div>
+
+						<div class="wpac-table-container">
+							<table class="wp-list-table widefat fixed striped" id="wpac-swapper-table">
+								<thead>
+									<tr>
+										<th>Título</th>
+										<th>Tipo de Contenido</th>
+										<th>Estado WP</th>
+										<th>ID</th>
+										<th style="width: 170px; text-align: right;">Acciones</th>
+									</tr>
+								</thead>
+								<tbody id="wpac-swapper-tbody">
+									<tr><td colspan="5">Cargando contenidos...</td></tr>
+								</tbody>
+							</table>
+						</div>
+
+						<div class="wpac-pagination-container">
+							<span id="wpac-swapper-pagination-info" class="wpac-pagination-info">Cargando...</span>
+							<div class="wpac-pagination-buttons">
+								<button type="button" class="button" id="wpac-swapper-prev-page" disabled>&laquo; Anterior</button>
+								<span id="wpac-swapper-page-numbers" class="wpac-page-numbers"></span>
+								<button type="button" class="button" id="wpac-swapper-next-page">Siguiente &raquo;</button>
+							</div>
+						</div>
+
+						<!-- Panel de Inspección de Imágenes del Elemento Seleccionado -->
+						<div id="wpac-inspector-container" class="wpac-inspector-section wpac-hidden">
+							<div class="wpac-inspector-header">
+								<h3 id="wpac-inspector-title">Imágenes de la página seleccionada</h3>
+								<button type="button" class="button button-secondary" id="wpac-close-inspector-btn">&times; Cerrar inspección</button>
+							</div>
+							<div id="wpac-inspector-grid" class="wpac-image-grid"></div>
+						</div>
+					</div>
+				</div>
+
+				<!-- PESTAÑA 4: GENERADOR DE BLOG CON IA -->
+				<div id="tab-blog-generator" class="wpac-tab-pane">
+					<div class="wpac-card">
+						<h2><span class="dashicons dashicons-admin-post"></span> Generador de Entradas de Blog con IA (Google Gemini + Stock Photos)</h2>
+						<p class="description">Crea automáticamente artículos de blog completos optimizados para SEO indicando la temática deseada. El plugin redacta el texto e inyecta fotos de stock de alta calidad.</p>
+
+						<form id="wpac-blog-generator-form">
+							<div class="wpac-field">
+								<label for="blog_topic">Temática / Prompt del Artículo de Blog:</label>
+								<input type="text" id="blog_topic" name="blog_topic" placeholder="Ej. 5 Consejos esenciales para el mantenimiento de un barco en verano..." />
+							</div>
+
+							<div class="wpac-field-row">
+								<div>
+									<label for="blog_tone">Tono de Comunicación:</label>
+									<select id="blog_tone" name="blog_tone">
+										<option value="Profesional y cercano">Profesional y cercano</option>
+										<option value="Informativo y educativo">Informativo y educativo</option>
+										<option value="Corporativo y experto">Corporativo y experto</option>
+										<option value="Fresco y dinámico">Fresco y dinámico</option>
+									</select>
+								</div>
+								<div>
+									<label for="blog_status">Estado de la Entrada:</label>
+									<select id="blog_status" name="blog_status">
+										<option value="draft">Borrador (Recomendado para revisar antes de publicar)</option>
+										<option value="publish">Publicado inmediatamente</option>
+									</select>
+								</div>
+							</div>
+
+							<div class="wpac-field" style="margin-top: 14px;">
+								<label class="wpac-checkbox-option">
+									<input type="checkbox" id="blog_include_featured" name="blog_include_featured" value="1" checked />
+									<strong>Descargar e inyectar Imagen Destacada automática desde Pexels API</strong>
+								</label>
+								<label class="wpac-checkbox-option" style="margin-top: 6px;">
+									<input type="checkbox" id="blog_include_body_images" name="blog_include_body_images" value="1" checked />
+									<strong>Inyectar imágenes de stock ilustrativas en cada sección del cuerpo del post</strong>
+								</label>
+							</div>
+
+							<div class="wpac-runner-section">
+								<button type="button" id="wpac-generate-blog-btn" class="button button-primary button-hero">
+									<span class="dashicons dashicons-admin-post"></span> Generar y Publicar Artículo de Blog con IA
+								</button>
+
+								<div id="wpac-blog-status-container" class="wpac-hidden" style="margin-top: 16px;">
+									<div id="wpac-blog-status-text" class="wpac-field-status"></div>
+								</div>
+							</div>
+						</form>
+					</div>
+				</div>
+
+			</div>
+
+			<!-- Modal Overlay para Seleccionar Foto de Reemplazo Quirúrgico -->
+			<div id="wpac-replacement-modal" class="wpac-modal-overlay wpac-hidden">
+				<div class="wpac-modal-content">
+					<div class="wpac-modal-header">
+						<h3><span class="dashicons dashicons-format-image"></span> Seleccionar Imagen de Reemplazo</h3>
+						<button type="button" class="wpac-modal-close" id="wpac-close-modal-btn">&times;</button>
+					</div>
+					<div class="wpac-modal-body">
+						<div class="wpac-search-row">
+							<input type="text" id="wpac-modal-search-kw" placeholder="Escribe la palabra clave o temática de la foto (ej. barco de vela, dentista...)" />
+							<button type="button" class="button button-primary" id="wpac-modal-search-btn">
+								<span class="dashicons dashicons-search"></span> Buscar Fotos
+							</button>
+						</div>
+						<div id="wpac-modal-candidates-grid" class="wpac-candidates-grid">
+							<p class="description">Ingresa un término de búsqueda o haz clic en Buscar para explorar fotos de stock en alta resolución.</p>
+						</div>
+					</div>
+				</div>
 			</div>
 
 			<div class="wpac-footer">
@@ -1043,5 +1188,256 @@ class WP_Autocontent_Admin_Settings {
 		}
 
 		return $text;
+	}
+
+	/**
+	 * AJAX Handler: Obteción paginada y filtrada de páginas y entradas para la pestaña de Reemplazo Quirúrgico de Imágenes.
+	 */
+	public function ajax_get_content_items(): void {
+		check_ajax_referer( 'wp_autocontent_nonce', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'No tienes permisos suficientes.', 'wp-autocontent' ) ) );
+		}
+
+		$post_type = isset( $_POST['post_type'] ) ? sanitize_text_field( wp_unslash( $_POST['post_type'] ) ) : 'all';
+		$search    = isset( $_POST['search'] ) ? sanitize_text_field( wp_unslash( $_POST['search'] ) ) : '';
+		$page      = isset( $_POST['page'] ) ? max( 1, (int) $_POST['page'] ) : 1;
+		$per_page  = 10;
+
+		$types = ( 'all' === $post_type ) ? array( 'page', 'post' ) : array( $post_type );
+
+		$args = array(
+			'post_type'      => $types,
+			'posts_per_page' => $per_page,
+			'paged'          => $page,
+			'post_status'    => array( 'publish', 'draft', 'private' ),
+			'orderby'        => 'title',
+			'order'          => 'ASC',
+			's'              => $search,
+		);
+
+		$query = new WP_Query( $args );
+		$items = array();
+
+		if ( $query->have_posts() ) {
+			while ( $query->have_posts() ) {
+				$query->the_post();
+				$pid       = get_the_ID();
+				$ptype     = get_post_type( $pid );
+				$edit_mode = get_post_meta( $pid, '_elementor_edit_mode', true );
+				$raw_data  = get_post_meta( $pid, '_elementor_data', true );
+
+				$items[] = array(
+					'ID'           => $pid,
+					'title'        => get_the_title( $pid ),
+					'post_type'    => ( 'page' === $ptype ) ? 'Página' : 'Entrada de Blog',
+					'status'       => get_post_status( $pid ),
+					'is_elementor' => ( 'builder' === $edit_mode || ! empty( $raw_data ) ),
+				);
+			}
+			wp_reset_postdata();
+		}
+
+		wp_send_json_success(
+			array(
+				'items'        => $items,
+				'total_items'  => $query->found_posts,
+				'total_pages'  => $query->max_num_pages,
+				'current_page' => $page,
+			)
+		);
+	}
+
+	/**
+	 * AJAX Handler: Escanea e inspecciona todas las imágenes utilizadas en un post o página específica.
+	 */
+	public function ajax_scan_post_images(): void {
+		check_ajax_referer( 'wp_autocontent_nonce', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'No tienes permisos suficientes.', 'wp-autocontent' ) ) );
+		}
+
+		$post_id = isset( $_POST['post_id'] ) ? (int) $_POST['post_id'] : 0;
+		if ( ! $post_id ) {
+			wp_send_json_error( array( 'message' => __( 'ID de post no válido.', 'wp-autocontent' ) ) );
+		}
+
+		$images = WP_Autocontent_Elementor_Mutator::scan_single_post_images( $post_id );
+
+		wp_send_json_success(
+			array(
+				'post_id'    => $post_id,
+				'post_title' => get_the_title( $post_id ),
+				'images'     => $images,
+			)
+		);
+	}
+
+	/**
+	 * AJAX Handler: Busca imágenes de reemplazo en Pexels/Unsplash/Pixabay según palabra clave.
+	 */
+	public function ajax_search_replacement_images(): void {
+		check_ajax_referer( 'wp_autocontent_nonce', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'No tienes permisos suficientes.', 'wp-autocontent' ) ) );
+		}
+
+		$keyword  = isset( $_POST['keyword'] ) ? sanitize_text_field( wp_unslash( $_POST['keyword'] ) ) : 'nature';
+		$provider = isset( $_POST['provider'] ) ? sanitize_text_field( wp_unslash( $_POST['provider'] ) ) : 'pexels';
+
+		$p_key = get_option( 'wp_autocontent_pexels_key', '' );
+		$u_key = get_option( 'wp_autocontent_unsplash_key', '' );
+		$x_key = get_option( 'wp_autocontent_pixabay_key', '' );
+
+		$importer   = new WP_Autocontent_Media_Importer( $p_key, $u_key, $x_key );
+		$english_kw = $this->translate_to_english( $keyword );
+
+		$results = $importer->fetch_and_import( $provider, $english_kw, 12 );
+
+		if ( is_wp_error( $results ) ) {
+			wp_send_json_error( array( 'message' => $results->get_error_message() ) );
+		}
+
+		wp_send_json_success( array( 'images' => $results ) );
+	}
+
+	/**
+	 * AJAX Handler: Aplica la sustitución quirúrgica de una imagen individual en un post o página.
+	 */
+	public function ajax_apply_image_replacement(): void {
+		check_ajax_referer( 'wp_autocontent_nonce', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'No tienes permisos suficientes.', 'wp-autocontent' ) ) );
+		}
+
+		$post_id   = isset( $_POST['post_id'] ) ? (int) $_POST['post_id'] : 0;
+		$image_key = isset( $_POST['image_key'] ) ? sanitize_text_field( wp_unslash( $_POST['image_key'] ) ) : '';
+		$new_id    = isset( $_POST['new_id'] ) ? (int) $_POST['new_id'] : 0;
+		$new_url   = isset( $_POST['new_url'] ) ? esc_url_raw( wp_unslash( $_POST['new_url'] ) ) : '';
+
+		if ( ! $post_id || empty( $image_key ) || empty( $new_url ) ) {
+			wp_send_json_error( array( 'message' => __( 'Parámetros incompletos para el reemplazo.', 'wp-autocontent' ) ) );
+		}
+
+		$new_img_data = array(
+			'id'  => $new_id,
+			'url' => $new_url,
+		);
+
+		$res = WP_Autocontent_Elementor_Mutator::replace_single_post_image( $post_id, $image_key, $new_img_data );
+
+		if ( is_wp_error( $res ) ) {
+			wp_send_json_error( array( 'message' => $res->get_error_message() ) );
+		}
+
+		wp_send_json_success( array( 'message' => __( '¡Imagen reemplazada con éxito!', 'wp-autocontent' ) ) );
+	}
+
+	/**
+	 * AJAX Handler: Generación de artículo de blog completo con Google Gemini e imágenes de stock.
+	 */
+	public function ajax_generate_blog_post(): void {
+		check_ajax_referer( 'wp_autocontent_nonce', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'No tienes permisos suficientes.', 'wp-autocontent' ) ) );
+		}
+
+		$topic            = isset( $_POST['topic'] ) ? sanitize_text_field( wp_unslash( $_POST['topic'] ) ) : '';
+		$tone             = isset( $_POST['tone'] ) ? sanitize_text_field( wp_unslash( $_POST['tone'] ) ) : 'Profesional y cercano';
+		$status           = isset( $_POST['status'] ) ? sanitize_text_field( wp_unslash( $_POST['status'] ) ) : 'draft';
+		$include_featured = ! empty( $_POST['include_featured'] );
+		$include_body     = ! empty( $_POST['include_body_images'] );
+
+		if ( empty( $topic ) ) {
+			wp_send_json_error( array( 'message' => __( 'Por favor, escribe una temática o prompt para el artículo de blog.', 'wp-autocontent' ) ) );
+		}
+
+		$g_key = get_option( 'wp_autocontent_gemini_key', '' );
+		if ( empty( $g_key ) ) {
+			wp_send_json_error( array( 'message' => __( 'Por favor, configura tu API Key de Google Gemini en el menú Configuración API.', 'wp-autocontent' ) ) );
+		}
+
+		$gemini  = new WP_Autocontent_Gemini_Client( $g_key );
+		$article = $gemini->generate_blog_article( $topic, $tone );
+
+		if ( is_wp_error( $article ) ) {
+			wp_send_json_error( array( 'message' => $article->get_error_message() ) );
+		}
+
+		$p_key    = get_option( 'wp_autocontent_pexels_key', '' );
+		$u_key    = get_option( 'wp_autocontent_unsplash_key', '' );
+		$x_key    = get_option( 'wp_autocontent_pixabay_key', '' );
+		$importer = new WP_Autocontent_Media_Importer( $p_key, $u_key, $x_key );
+
+		// 1. Construir Contenido HTML del Artículo
+		$html_content = '';
+		if ( ! empty( $article['sections'] ) && is_array( $article['sections'] ) ) {
+			foreach ( $article['sections'] as $sec ) {
+				$heading = isset( $sec['heading'] ) ? sanitize_text_field( $sec['heading'] ) : '';
+				$content = isset( $sec['content'] ) ? sanitize_textarea_field( $sec['content'] ) : '';
+				$img_kw  = isset( $sec['image_keyword'] ) ? sanitize_text_field( $sec['image_keyword'] ) : $article['keyword_for_images'];
+
+				if ( ! empty( $heading ) ) {
+					$html_content .= '<h2>' . esc_html( $heading ) . '</h2>';
+				}
+
+				if ( $include_body && ! empty( $img_kw ) ) {
+					$en_kw = $this->translate_to_english( $img_kw );
+					$stock = $importer->fetch_and_import( 'pexels', $en_kw, 1 );
+					if ( ! is_wp_error( $stock ) && ! empty( $stock[0]['url'] ) ) {
+						$html_content .= '<p><img src="' . esc_url( $stock[0]['url'] ) . '" alt="' . esc_attr( $heading ) . '" class="aligncenter size-large" /></p>';
+					}
+				}
+
+				if ( ! empty( $content ) ) {
+					$html_content .= '<p>' . esc_html( $content ) . '</p>';
+				}
+			}
+		}
+
+		// 2. Crear la entrada de WordPress
+		$post_data = array(
+			'post_title'   => esc_html( $article['title'] ),
+			'post_content' => $html_content,
+			'post_excerpt' => esc_html( $article['excerpt'] ),
+			'post_status'  => in_array( $status, array( 'publish', 'draft' ), true ) ? $status : 'draft',
+			'post_type'    => 'post',
+		);
+
+		$new_post_id = wp_insert_post( $post_data );
+
+		if ( is_wp_error( $new_post_id ) || ! $new_post_id ) {
+			$err_msg = is_wp_error( $new_post_id ) ? $new_post_id->get_error_message() : __( 'No se pudo crear la entrada.', 'wp-autocontent' );
+			wp_send_json_error( array( 'message' => $err_msg ) );
+		}
+
+		// 3. Descargar e inyectar Imagen Destacada
+		if ( $include_featured && ! empty( $article['keyword_for_images'] ) ) {
+			$feat_kw    = $this->translate_to_english( $article['keyword_for_images'] );
+			$feat_stock = $importer->fetch_and_import( 'pexels', $feat_kw, 1 );
+			if ( ! is_wp_error( $feat_stock ) && ! empty( $feat_stock[0]['id'] ) ) {
+				set_post_thumbnail( $new_post_id, (int) $feat_stock[0]['id'] );
+			}
+		}
+
+		$edit_link = get_edit_post_link( $new_post_id, 'raw' );
+
+		wp_send_json_success(
+			array(
+				'message'   => sprintf(
+					__( '🚀 ¡Artículo "%s" creado con éxito (ID: #%d)! Puedes <a href="%s" target="_blank">ver/editar la entrada aquí</a>.', 'wp-autocontent' ),
+					esc_html( $article['title'] ),
+					$new_post_id,
+					esc_url( $edit_link )
+				),
+				'post_id'   => $new_post_id,
+				'edit_link' => $edit_link,
+			)
+		);
 	}
 }

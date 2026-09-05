@@ -868,4 +868,215 @@ class WP_Autocontent_Elementor_Mutator {
 			// Silenciar excepciones en limpieza de caché
 		}
 	}
+
+	/**
+	 * Escanea y extrae una lista detallada de todas las imágenes usadas en una página o entrada.
+	 *
+	 * @param int $post_id ID de la página o post.
+	 * @return array Lista de imágenes encontradas con key, url, tipo y contexto.
+	 */
+	public static function scan_single_post_images( int $post_id ): array {
+		$images = array();
+
+		// 1. Imagen Destacada de WordPress
+		$thumb_id = get_post_thumbnail_id( $post_id );
+		if ( $thumb_id ) {
+			$thumb_url = wp_get_attachment_url( $thumb_id );
+			if ( $thumb_url ) {
+				$images[] = array(
+					'key'           => 'featured_image',
+					'url'           => $thumb_url,
+					'attachment_id' => (int) $thumb_id,
+					'type'          => 'Imagen Destacada',
+					'context'       => 'Portada / Imagen principal del post',
+				);
+			}
+		}
+
+		// 2. Elementor Data
+		$raw_data = get_post_meta( $post_id, '_elementor_data', true );
+		if ( ! empty( $raw_data ) ) {
+			$elements = is_array( $raw_data ) ? $raw_data : json_decode( $raw_data, true );
+			if ( is_array( $elements ) ) {
+				self::recursive_scan_elementor_images( $elements, $images );
+			}
+		}
+
+		// 3. Imágenes en el Contenido HTML Estándar (post_content)
+		$post = get_post( $post_id );
+		if ( $post && ! empty( $post->post_content ) ) {
+			if ( preg_match_all( '/<img[^>]+src=["\']([^"\']+)["\']/i', $post->post_content, $matches, PREG_SET_ORDER ) ) {
+				foreach ( $matches as $idx => $m ) {
+					$img_url = $m[1];
+					if ( ! empty( $img_url ) && strpos( $img_url, 'data:image' ) === false ) {
+						$images[] = array(
+							'key'           => 'html_img_' . $idx,
+							'url'           => $img_url,
+							'attachment_id' => 0,
+							'type'          => 'Contenido Editor WP',
+							'context'       => 'Imagen incrustada en el texto del post',
+						);
+					}
+				}
+			}
+		}
+
+		return $images;
+	}
+
+	/**
+	 * Recorredor recursivo para capturar imágenes en Elementor.
+	 */
+	private static function recursive_scan_elementor_images( array $elements, array &$images ): void {
+		foreach ( $elements as $element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+
+			$el_id       = isset( $element['id'] ) ? $element['id'] : wp_generate_password( 6, false );
+			$widget_type = isset( $element['widgetType'] ) ? $element['widgetType'] : '';
+			$settings    = isset( $element['settings'] ) && is_array( $element['settings'] ) ? $element['settings'] : array();
+
+			// Widget de Imagen, Image Box, Call to Action, Testimonial, etc.
+			if ( ! empty( $settings['image']['url'] ) ) {
+				$images[] = array(
+					'key'           => 'elementor_' . $el_id . '_image',
+					'element_id'    => $el_id,
+					'url'           => $settings['image']['url'],
+					'attachment_id' => isset( $settings['image']['id'] ) ? (int) $settings['image']['id'] : 0,
+					'type'          => 'Widget Elementor (' . ( $widget_type ? $widget_type : 'image' ) . ')',
+					'context'       => ! empty( $settings['title'] ) ? $settings['title'] : ( ! empty( $settings['title_text'] ) ? $settings['title_text'] : 'Widget de Imagen' ),
+				);
+			}
+
+			// Fondos de Sección o Contenedor
+			if ( ! empty( $settings['background_image']['url'] ) ) {
+				$images[] = array(
+					'key'           => 'elementor_' . $el_id . '_bg',
+					'element_id'    => $el_id,
+					'url'           => $settings['background_image']['url'],
+					'attachment_id' => isset( $settings['background_image']['id'] ) ? (int) $settings['background_image']['id'] : 0,
+					'type'          => 'Fondo de Sección Elementor',
+					'context'       => 'Imagen de Fondo de Contenedor',
+				);
+			}
+
+			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				self::recursive_scan_elementor_images( $element['elements'], $images );
+			}
+		}
+	}
+
+	/**
+	 * Sustituye quirúrgicamente una única imagen identificada por su key en una página o post.
+	 *
+	 * @param int $post_id ID del post.
+	 * @param string $image_key Clave de la imagen a sustituir.
+	 * @param array $new_img Nuevos datos de imagen ['id' => int, 'url' => string].
+	 * @return bool|WP_Error True en éxito o WP_Error en caso de fallo.
+	 */
+	public static function replace_single_post_image( int $post_id, string $image_key, array $new_img ) {
+		if ( empty( $new_img['url'] ) ) {
+			return new WP_Error( 'invalid_new_image', __( 'La nueva imagen no es válida.', 'wp-autocontent' ) );
+		}
+
+		// 1. Imagen Destacada
+		if ( 'featured_image' === $image_key ) {
+			set_post_thumbnail( $post_id, (int) $new_img['id'] );
+			return true;
+		}
+
+		// 2. Elementor Data
+		if ( strpos( $image_key, 'elementor_' ) === 0 ) {
+			$raw_data = get_post_meta( $post_id, '_elementor_data', true );
+			if ( empty( $raw_data ) ) {
+				return new WP_Error( 'no_elementor_data', __( 'No se encontraron datos de Elementor.', 'wp-autocontent' ) );
+			}
+
+			$elements = is_array( $raw_data ) ? $raw_data : json_decode( $raw_data, true );
+			if ( ! is_array( $elements ) ) {
+				return new WP_Error( 'json_parse_error', __( 'Error al parsear JSON de Elementor.', 'wp-autocontent' ) );
+			}
+
+			$replaced = self::recursive_replace_elementor_image( $elements, $image_key, $new_img );
+			if ( $replaced ) {
+				update_post_meta( $post_id, '_elementor_data', wp_slash( wp_json_encode( $elements ) ) );
+				$instance = new self();
+				$instance->clear_elementor_cache( $post_id );
+				return true;
+			}
+
+			return new WP_Error( 'image_not_found', __( 'No se encontró el elemento objetivo en la estructura de Elementor.', 'wp-autocontent' ) );
+		}
+
+		// 3. Contenido HTML
+		if ( strpos( $image_key, 'html_img_' ) === 0 ) {
+			$post = get_post( $post_id );
+			if ( ! $post ) {
+				return new WP_Error( 'post_not_found', __( 'Post no encontrado.', 'wp-autocontent' ) );
+			}
+
+			$idx_target = (int) str_replace( 'html_img_', '', $image_key );
+			$count      = 0;
+			$new_content = preg_replace_callback(
+				'/<img([^>]+)src=["\']([^"\']+)["\']/i',
+				function ( $matches ) use ( &$count, $idx_target, $new_img ) {
+					if ( $count === $idx_target ) {
+						$count++;
+						return '<img' . $matches[1] . 'src="' . esc_url( $new_img['url'] ) . '"';
+					}
+					$count++;
+					return $matches[0];
+				},
+				$post->post_content
+			);
+
+			wp_update_post(
+				array(
+					'ID'           => $post_id,
+					'post_content' => $new_content,
+				)
+			);
+			return true;
+		}
+
+		return new WP_Error( 'invalid_key', __( 'Clave de imagen no válida.', 'wp-autocontent' ) );
+	}
+
+	/**
+	 * Recorredor recursivo para sustituir la imagen específica en Elementor.
+	 */
+	private static function recursive_replace_elementor_image( array &$elements, string $target_key, array $new_img ): bool {
+		foreach ( $elements as &$element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+
+			$el_id = isset( $element['id'] ) ? $element['id'] : '';
+
+			if ( 'elementor_' . $el_id . '_image' === $target_key ) {
+				$element['settings']['image'] = array(
+					'id'  => (int) $new_img['id'],
+					'url' => esc_url_raw( $new_img['url'] ),
+				);
+				return true;
+			}
+
+			if ( 'elementor_' . $el_id . '_bg' === $target_key ) {
+				$element['settings']['background_image'] = array(
+					'id'  => (int) $new_img['id'],
+					'url' => esc_url_raw( $new_img['url'] ),
+				);
+				return true;
+			}
+
+			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				if ( self::recursive_replace_elementor_image( $element['elements'], $target_key, $new_img ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
 }
