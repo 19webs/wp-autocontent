@@ -188,11 +188,11 @@ jQuery(document).ready(function ($) {
 		var $btn = $(this);
 		var $status = $('#wpac-keys-status');
 
-		var geminiKey = $('#gemini_api_key').val().trim();
-		var pexelsKey = $('#pexels_api_key').val().trim();
-		var unsplashKey = $('#unsplash_api_key').val().trim();
-		var pixabayKey = $('#pixabay_api_key').val().trim();
-		var iconfinderKey = $('#iconfinder_api_key').val().trim();
+		var geminiKey = ($('#gemini_api_key').val() || '').trim();
+		var pexelsKey = ($('#pexels_api_key').val() || '').trim();
+		var unsplashKey = ($('#unsplash_api_key').val() || '').trim();
+		var pixabayKey = ($('#pixabay_api_key').val() || '').trim();
+		var iconfinderKey = ($('#iconfinder_api_key').val() || '').trim();
 
 		$btn.prop('disabled', true);
 		$status.html('<span class="wpac-spinner wpac-spinner-dark"></span> Guardando...').css('color', '#64748b');
@@ -231,7 +231,7 @@ jQuery(document).ready(function ($) {
 		var $btn = $(this);
 		var provider = $btn.data('provider');
 		var $input = $('#' + provider + '_api_key');
-		var apiKey = $input.val().trim();
+		var apiKey = ($input.val() || '').trim();
 		var $status = $('#wpac-status-' + provider);
 
 		if (!apiKey) {
@@ -281,18 +281,18 @@ jQuery(document).ready(function ($) {
 			return;
 		}
 
-		var textSource = $('input[name="text_source"]:checked').val();
-		var imageSource = $('input[name="image_source"]:checked').val();
-		var iconSource = $('input[name="icon_source"]:checked').val();
-		var scrapeUrl = $('#scrape_url').val().trim();
-		var geminiSector = $('#gemini_sector').val().trim();
-		var geminiTone = $('#gemini_tone').val();
-		var pexelsKw = $('#pexels_keyword').val().trim();
-		var geminiKey = $('#gemini_api_key').val().trim();
-		var pexelsKey = $('#pexels_api_key').val().trim();
-		var unsplashKey = $('#unsplash_api_key').val().trim();
-		var pixabayKey = $('#pixabay_api_key').val().trim();
-		var iconfinderKey = $('#iconfinder_api_key').val().trim();
+		var textSource = $('input[name="text_source"]:checked').val() || 'gemini';
+		var imageSource = $('input[name="image_source"]:checked').val() || 'pexels';
+		var iconSource = $('input[name="icon_source"]:checked').val() || 'none';
+		var scrapeUrl = ($('#scrape_url').val() || '').trim();
+		var geminiSector = ($('#gemini_sector').val() || '').trim();
+		var geminiTone = $('#gemini_tone').val() || 'Profesional y cercano';
+		var pexelsKw = ($('#pexels_keyword').val() || '').trim();
+		var geminiKey = ($('#gemini_api_key').val() || '').trim();
+		var pexelsKey = ($('#pexels_api_key').val() || '').trim();
+		var unsplashKey = ($('#unsplash_api_key').val() || '').trim();
+		var pixabayKey = ($('#pixabay_api_key').val() || '').trim();
+		var iconfinderKey = ($('#iconfinder_api_key').val() || '').trim();
 
 		if ('scrape' === textSource && !scrapeUrl) {
 			alert(WPAutocontent.strings.invalid_url);
