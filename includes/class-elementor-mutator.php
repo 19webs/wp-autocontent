@@ -41,6 +41,18 @@ class WP_Autocontent_Elementor_Mutator {
 	private array $icons_pool = array();
 
 	/**
+	 * Datos de contacto (teléfonos, emails, dirección y logotipos de clientes).
+	 *
+	 * @var array
+	 */
+	private array $contact_info = array(
+		'phones'  => array(),
+		'emails'  => array(),
+		'address' => '',
+		'logos'   => array(),
+	);
+
+	/**
 	 * Bandera para crear automáticamente nuevas secciones en Elementor si sobra texto extraído.
 	 *
 	 * @var bool
@@ -84,6 +96,26 @@ class WP_Autocontent_Elementor_Mutator {
 	 */
 	public function set_auto_create_sections( bool $enable ): void {
 		$this->auto_create_sections = $enable;
+	}
+
+	/**
+	 * Establece los datos de contacto y logotipos de clientes extraídos.
+	 *
+	 * @param array $contact Datos de contacto y marcas.
+	 */
+	public function set_contact_info( array $contact ): void {
+		if ( isset( $contact['phones'] ) && is_array( $contact['phones'] ) ) {
+			$this->contact_info['phones'] = $contact['phones'];
+		}
+		if ( isset( $contact['emails'] ) && is_array( $contact['emails'] ) ) {
+			$this->contact_info['emails'] = $contact['emails'];
+		}
+		if ( isset( $contact['address'] ) && is_string( $contact['address'] ) ) {
+			$this->contact_info['address'] = $contact['address'];
+		}
+		if ( isset( $contact['logos'] ) && is_array( $contact['logos'] ) ) {
+			$this->contact_info['logos'] = $contact['logos'];
+		}
 	}
 
 	/**
@@ -559,6 +591,61 @@ class WP_Autocontent_Elementor_Mutator {
 					'url' => esc_url_raw( $next_img['url'] ),
 				);
 				$this->stats['images_replaced']++;
+			}
+		}
+
+		// 12. Widget de Mapas de Google ('google_maps', 'ea-google-map', 'map', 'google-map')
+		if ( in_array( $widget_type, array( 'google_maps', 'ea-google-map', 'google-map', 'map' ), true ) && ! empty( $this->contact_info['address'] ) ) {
+			$element['settings']['address'] = esc_html( $this->contact_info['address'] );
+			$this->stats['headings_replaced']++;
+		}
+
+		// 13. Widget de Carrusel / Galería de Logotipos de Clientes ('image-carousel', 'media-carousel', 'logo-grid', 'gallery', 'ea-logo-carousel')
+		if ( in_array( $widget_type, array( 'image-carousel', 'media-carousel', 'logo-grid', 'gallery', 'ea-logo-carousel' ), true ) && ! empty( $this->contact_info['logos'] ) ) {
+			$logo_gallery = array();
+			foreach ( $this->contact_info['logos'] as $logo_img ) {
+				if ( is_array( $logo_img ) && isset( $logo_img['id'] ) ) {
+					$logo_gallery[] = array(
+						'id'  => (int) $logo_img['id'],
+						'url' => esc_url_raw( $logo_img['url'] ),
+					);
+				}
+			}
+			if ( ! empty( $logo_gallery ) ) {
+				$element['settings']['wp_gallery'] = $logo_gallery;
+				$element['settings']['carousel']   = $logo_gallery;
+				$this->stats['images_replaced'] += count( $logo_gallery );
+			}
+		}
+
+		// 14. Adaptación Inteligente de Datos de Contacto en Lista de Iconos ('icon-list')
+		if ( 'icon-list' === $widget_type && ! empty( $element['settings']['icon_list'] ) && is_array( $element['settings']['icon_list'] ) ) {
+			foreach ( $element['settings']['icon_list'] as &$item ) {
+				if ( ! is_array( $item ) ) {
+					continue;
+				}
+				$icon_val = isset( $item['selected_icon']['value'] ) ? strtolower( $item['selected_icon']['value'] ) : '';
+				$orig_url = isset( $item['link']['url'] ) ? strtolower( $item['link']['url'] ) : '';
+
+				// Teléfono / Móvil
+				if ( ( strpos( $icon_val, 'phone' ) !== false || strpos( $icon_val, 'mobile' ) !== false || strpos( $icon_val, 'whatsapp' ) !== false || strpos( $orig_url, 'tel:' ) !== false ) && ! empty( $this->contact_info['phones'] ) ) {
+					$phone_val           = $this->contact_info['phones'][0];
+					$item['text']        = esc_html( $phone_val );
+					$item['link']['url'] = 'tel:' . preg_replace( '/[^0-9\+]/', '', $phone_val );
+					$this->stats['headings_replaced']++;
+				}
+				// Email / Correo
+				elseif ( ( strpos( $icon_val, 'envelope' ) !== false || strpos( $icon_val, 'at' ) !== false || strpos( $icon_val, 'mail' ) !== false || strpos( $orig_url, 'mailto:' ) !== false ) && ! empty( $this->contact_info['emails'] ) ) {
+					$email_val           = $this->contact_info['emails'][0];
+					$item['text']        = esc_html( $email_val );
+					$item['link']['url'] = 'mailto:' . esc_attr( $email_val );
+					$this->stats['headings_replaced']++;
+				}
+				// Dirección / Ubicación
+				elseif ( ( strpos( $icon_val, 'map' ) !== false || strpos( $icon_val, 'location' ) !== false || strpos( $icon_val, 'marker' ) !== false || strpos( $icon_val, 'pin' ) !== false ) && ! empty( $this->contact_info['address'] ) ) {
+					$item['text'] = esc_html( $this->contact_info['address'] );
+					$this->stats['headings_replaced']++;
+				}
 			}
 		}
 

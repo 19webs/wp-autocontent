@@ -480,4 +480,38 @@ jQuery(document).ready(function ($) {
 			}
 		});
 	});
+
+	// 5b. Ejecutar Actualización In-Situ desde el mismo plugin sin parpadeos
+	$(document).on('click', '#wpac-install-update-btn', function (e) {
+		e.preventDefault();
+		var $btn = $(this);
+		var $status = $('#wpac-update-status');
+
+		$btn.prop('disabled', true).html('<span class="wpac-spinner wpac-spinner-dark"></span> Instalando...');
+		$status.html('<span class="wpac-spinner wpac-spinner-dark"></span> Descargando e instalando actualización en segundo plano...').css('color', '#c7d2fe');
+
+		$.ajax({
+			url: WPAutocontent.ajax_url,
+			type: 'POST',
+			data: {
+				action: 'wp_autocontent_install_update',
+				nonce: WPAutocontent.nonce
+			},
+			success: function (response) {
+				if (response.success) {
+					$status.html('<span style="color:#4ade80;font-weight:700;">' + response.data.message + '</span>');
+					setTimeout(function () {
+						window.location.reload();
+					}, 1000);
+				} else {
+					$btn.prop('disabled', false).html('<span class="dashicons dashicons-download"></span> Reintentar actualización');
+					$status.html('🔴 ' + (response.data.message || 'Error al instalar la actualización.')).css('color', '#f87171');
+				}
+			},
+			error: function (xhr, status, error) {
+				$btn.prop('disabled', false).html('<span class="dashicons dashicons-download"></span> Reintentar actualización');
+				$status.html('🔴 Error de servidor al instalar: ' + error).css('color', '#f87171');
+			}
+		});
+	});
 });

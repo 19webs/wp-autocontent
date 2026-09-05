@@ -625,6 +625,24 @@ class WP_Autocontent_Admin_Settings {
 					}
 				}
 			}
+
+			// Extraer e importar logotipos de clientes / marcas y guardar datos de contacto
+			$imported_logos = array();
+			if ( ! empty( $scraped['contact']['logos'] ) && is_array( $scraped['contact']['logos'] ) ) {
+				foreach ( $scraped['contact']['logos'] as $logo_url ) {
+					$imp_logo = $importer->import_remote_image( $logo_url );
+					if ( ! is_wp_error( $imp_logo ) && is_array( $imp_logo ) ) {
+						$imported_logos[] = $imp_logo;
+					}
+				}
+			}
+
+			$contact_data = array(
+				'phones'  => isset( $scraped['contact']['phones'] ) ? $scraped['contact']['phones'] : array(),
+				'emails'  => isset( $scraped['contact']['emails'] ) ? $scraped['contact']['emails'] : array(),
+				'address' => isset( $scraped['contact']['address'] ) ? $scraped['contact']['address'] : '',
+				'logos'   => $imported_logos,
+			);
 		} else { // 'gemini'
 			if ( empty( $gemini_sector ) ) {
 				wp_send_json_error( array( 'message' => __( 'Debe ingresar un sector/actividad para la IA de Gemini.', 'wp-autocontent' ) ) );
@@ -692,6 +710,7 @@ class WP_Autocontent_Admin_Settings {
 			'paragraphs'           => $paragraphs,
 			'images'               => $images,
 			'icons'                => $icons,
+			'contact'              => isset( $contact_data ) ? $contact_data : array(),
 			'auto_create_sections' => $auto_create_sections,
 		);
 
@@ -746,6 +765,10 @@ class WP_Autocontent_Admin_Settings {
 			isset( $pool_data['images'] ) ? $pool_data['images'] : array(),
 			isset( $pool_data['icons'] ) ? $pool_data['icons'] : array()
 		);
+
+		if ( ! empty( $pool_data['contact'] ) && is_array( $pool_data['contact'] ) ) {
+			$mutator->set_contact_info( $pool_data['contact'] );
+		}
 
 		if ( ! empty( $pool_data['auto_create_sections'] ) ) {
 			$mutator->set_auto_create_sections( true );

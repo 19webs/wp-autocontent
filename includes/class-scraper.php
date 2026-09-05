@@ -118,10 +118,97 @@ class WP_Autocontent_Scraper {
 		libxml_clear_errors();
 		libxml_use_internal_errors( $libxml_previous_state );
 
+		// 4. Extraer Datos de Contacto (Teléfonos, Emails, Dirección) y Logotipos de Clientes
+		$phones  = array();
+		$emails  = array();
+		$address = '';
+		$logos   = array();
+
+		// Extraer Teléfonos (enlaces tel: y patrones de texto)
+		$tel_nodes = $xpath->query( '//a[starts-with(@href, "tel:")]' );
+		if ( $tel_nodes ) {
+			foreach ( $tel_nodes as $node ) {
+				$text_tel = sanitize_text_field( trim( $node->textContent ) );
+				if ( ! empty( $text_tel ) && ! in_array( $text_tel, $phones, true ) ) {
+					$phones[] = $text_tel;
+				}
+			}
+		}
+
+		if ( empty( $phones ) ) {
+			if ( preg_match_all( '/(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d{3,4}[\s.-]?\d{3,4}/', $html, $matches ) ) {
+				foreach ( $matches[0] as $possible_phone ) {
+					$clean_phone = sanitize_text_field( trim( $possible_phone ) );
+					if ( strlen( preg_replace( '/\D/', '', $clean_phone ) ) >= 9 && ! in_array( $clean_phone, $phones, true ) ) {
+						$phones[] = $clean_phone;
+					}
+				}
+			}
+		}
+
+		// Extraer Emails (enlaces mailto: y patrones regex)
+		$mail_nodes = $xpath->query( '//a[starts-with(@href, "mailto:")]' );
+		if ( $mail_nodes ) {
+			foreach ( $mail_nodes as $node ) {
+				$raw_href = $node->getAttribute( 'href' );
+				$email    = sanitize_email( str_replace( 'mailto:', '', strtok( $raw_href, '?' ) ) );
+				if ( ! empty( $email ) && ! in_array( $email, $emails, true ) ) {
+					$emails[] = $email;
+				}
+			}
+		}
+
+		if ( empty( $emails ) ) {
+			if ( preg_match_all( '/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $html, $matches ) ) {
+				foreach ( $matches[0] as $possible_email ) {
+					$clean_email = sanitize_email( $possible_email );
+					if ( is_email( $clean_email ) && ! in_array( $clean_email, $emails, true ) ) {
+						$emails[] = $clean_email;
+					}
+				}
+			}
+		}
+
+		// Extraer Dirección Física (nodos address, Schema.org o clases de ubicación)
+		$addr_nodes = $xpath->query( '//address | //*[@itemprop="address"] | //*[contains(@class, "address")] | //*[contains(@class, "location")] | //*[contains(@class, "contacto")]' );
+		if ( $addr_nodes ) {
+			foreach ( $addr_nodes as $node ) {
+				$txt = sanitize_text_field( trim( $node->textContent ) );
+				$len = mb_strlen( $txt, 'UTF-8' );
+				if ( $len >= 10 && $len <= 150 && ! in_array( strtolower( $txt ), array( 'contacto', 'ubicación', 'donde estamos' ), true ) ) {
+					$address = $txt;
+					break;
+				}
+			}
+		}
+
+		// Extraer Logotipos de Clientes / Marcas / Patrocinadores
+		$logo_nodes = $xpath->query( '//*[contains(@class, "logo") or contains(@class, "client") or contains(@class, "partner") or contains(@class, "sponsor") or contains(@class, "brand")]//img' );
+		if ( $logo_nodes ) {
+			foreach ( $logo_nodes as $node ) {
+				$src = $node->getAttribute( 'src' );
+				if ( empty( $src ) || strpos( $src, 'data:image' ) === 0 ) {
+					$src = $node->getAttribute( 'data-src' );
+				}
+				if ( ! empty( $src ) ) {
+					$full_url = $this->resolve_relative_url( $src, $base_url );
+					if ( filter_var( $full_url, FILTER_VALIDATE_URL ) && ! in_array( $full_url, $logos, true ) ) {
+						$logos[] = $full_url;
+					}
+				}
+			}
+		}
+
 		return array(
 			'headings'   => array_values( $headings ),
 			'paragraphs' => array_values( $paragraphs ),
 			'images'     => array_values( $images ),
+			'contact'    => array(
+				'phones'  => array_values( array_slice( $phones, 0, 5 ) ),
+				'emails'  => array_values( array_slice( $emails, 0, 5 ) ),
+				'address' => $address,
+				'logos'   => array_values( array_slice( $logos, 0, 15 ) ),
+			),
 		);
 	}
 

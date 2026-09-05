@@ -36,8 +36,9 @@ class WP_Autocontent_Updater {
 		add_filter( 'plugins_api', array( $this, 'plugin_info' ), 10, 3 );
 		add_filter( 'upgrader_post_install', array( $this, 'post_install' ), 10, 3 );
 
-		// Endpoint AJAX para comprobar actualizaciones bajo demanda
+		// Endpoints AJAX
 		add_action( 'wp_ajax_wp_autocontent_check_updates', array( $this, 'ajax_check_updates' ) );
+		add_action( 'wp_ajax_wp_autocontent_install_update', array( $this, 'ajax_install_update' ) );
 	}
 
 	/**
@@ -200,7 +201,7 @@ class WP_Autocontent_Updater {
 			}
 		}
 
-		return new WP_Error( 'no_releases_found', __( 'Aún no se ha publicado ninguna versión en GitHub. Ejecuta el archivo subir.bat para publicar la primera versión.', 'wp-autocontent' ) );
+		return new WP_Error( 'no_releases_found', __( 'Aún no se ha publicado ninguna versión en GitHub.', 'wp-autocontent' ) );
 	}
 
 	/**
@@ -225,15 +226,15 @@ class WP_Autocontent_Updater {
 		$latest_version = ltrim( $release['tag_name'], 'v' );
 
 		if ( version_compare( $this->version, $latest_version, '<' ) ) {
-			$update_url = admin_url( 'update-core.php' );
 			wp_send_json_success(
 				array(
 					'has_update'     => true,
 					'latest_version' => $latest_version,
 					'message'        => sprintf(
-						__( '🚀 ¡Nueva versión v%s disponible en GitHub! Puedes <a href="%s" target="_parent">actualizar ahora desde WordPress</a>.', 'wp-autocontent' ),
+						__( '🚀 ¡Nueva versión v%s disponible! <button type="button" id="wpac-install-update-btn" class="button button-primary wpac-install-btn" data-version="%s"><span class="dashicons dashicons-download"></span> Actualizar a v%s ahora</button>', 'wp-autocontent' ),
 						$latest_version,
-						esc_url( $update_url )
+						$latest_version,
+						$latest_version
 					),
 				)
 			);
@@ -246,5 +247,49 @@ class WP_Autocontent_Updater {
 				)
 			);
 		}
+	}
+
+	/**
+	 * AJAX Handler: Ejecutar la actualización silenciosa in-situ desde la pantalla del plugin.
+	 */
+	public function ajax_install_update(): void {
+		check_ajax_referer( 'wp_autocontent_nonce', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'No tienes permisos suficientes.', 'wp-autocontent' ) ) );
+		}
+
+		delete_transient( 'wpac_github_release_cache' );
+
+		$transient = get_site_transient( 'update_plugins' );
+		if ( ! is_object( $transient ) ) {
+			$transient = new stdClass();
+		}
+		$transient = $this->check_for_update( $transient );
+		set_site_transient( 'update_plugins', $transient );
+
+		include_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+		include_once ABSPATH . 'wp-admin/includes/file.php';
+		include_once ABSPATH . 'wp-admin/includes/misc.php';
+		include_once ABSPATH . 'wp-admin/includes/plugin.php';
+
+		$skin     = new Automatic_Upgrader_Skin();
+		$upgrader = new Plugin_Upgrader( $skin );
+		$result   = $upgrader->upgrade( $this->slug );
+
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+		}
+
+		if ( is_wp_error( $skin->get_errors() ) && $skin->get_errors()->has_errors() ) {
+			wp_send_json_error( array( 'message' => $skin->get_errors()->get_error_message() ) );
+		}
+
+		wp_send_json_success(
+			array(
+				'message' => __( '✅ ¡Plugin actualizado con éxito! Recargando...', 'wp-autocontent' ),
+				'reload'  => true,
+			)
+		);
 	}
 }
