@@ -352,6 +352,7 @@ class WP_Autocontent_Media_Importer {
 
 	/**
 	 * Descarga e importa físicamente una imagen o icono remotos a wp_media usando media_handle_sideload().
+	 * Evita duplicación comprobando si ya existe en la biblioteca de medios de WordPress.
 	 */
 	public function import_remote_image( string $url, string $title = '', int $post_id = 0 ) {
 		$url = esc_url_raw( $url );
@@ -361,6 +362,53 @@ class WP_Autocontent_Media_Importer {
 
 		if ( isset( self::$imported_cache[ $url ] ) ) {
 			return self::$imported_cache[ $url ];
+		}
+
+		global $wpdb;
+
+		// 1. Comprobar si ya existe una entrada en wp_postmeta con el origen de la URL
+		$existing_id = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wpac_source_url' AND meta_value = %s LIMIT 1",
+				$url
+			)
+		);
+
+		if ( $existing_id ) {
+			$existing_url = wp_get_attachment_url( $existing_id );
+			if ( $existing_url ) {
+				$result                       = array(
+					'id'  => (int) $existing_id,
+					'url' => (string) $existing_url,
+				);
+				self::$imported_cache[ $url ] = $result;
+				return $result;
+			}
+		}
+
+		// 2. Comprobar si ya existe un archivo con el mismo nombre de archivo en la biblioteca de medios
+		$path_parts = pathinfo( wp_parse_url( $url, PHP_URL_PATH ) );
+		$basename   = ! empty( $path_parts['basename'] ) ? sanitize_file_name( $path_parts['basename'] ) : '';
+
+		if ( ! empty( $basename ) && strlen( $basename ) > 3 ) {
+			$existing_by_file = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value LIKE %s LIMIT 1",
+					'%' . $wpdb->esc_like( $basename )
+				)
+			);
+			if ( $existing_by_file ) {
+				$existing_url = wp_get_attachment_url( $existing_by_file );
+				if ( $existing_url ) {
+					update_post_meta( $existing_by_file, '_wpac_source_url', $url );
+					$result                       = array(
+						'id'  => (int) $existing_by_file,
+						'url' => (string) $existing_url,
+					);
+					self::$imported_cache[ $url ] = $result;
+					return $result;
+				}
+			}
 		}
 
 		if ( ! function_exists( 'download_url' ) ) {
@@ -379,8 +427,7 @@ class WP_Autocontent_Media_Importer {
 			return $tmp_file;
 		}
 
-		$path_parts = pathinfo( wp_parse_url( $url, PHP_URL_PATH ) );
-		$filename   = ! empty( $path_parts['basename'] ) ? sanitize_file_name( $path_parts['basename'] ) : 'demo-img-' . time() . '.png';
+		$filename = ! empty( $basename ) ? $basename : 'demo-img-' . time() . '.png';
 
 		if ( ! preg_match( '/\.(jpg|jpeg|png|webp|svg)$/i', $filename ) ) {
 			$filename .= '.png';
@@ -402,6 +449,9 @@ class WP_Autocontent_Media_Importer {
 		if ( is_wp_error( $attachment_id ) ) {
 			return $attachment_id;
 		}
+
+		// Registrar meta para evitar duplicaciones en futuros escaneos o procesamientos
+		update_post_meta( $attachment_id, '_wpac_source_url', $url );
 
 		$attachment_url = wp_get_attachment_url( $attachment_id );
 

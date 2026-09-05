@@ -594,9 +594,23 @@ class WP_Autocontent_Elementor_Mutator {
 			}
 		}
 
-		// 12. Widget de Mapas de Google ('google_maps', 'ea-google-map', 'map', 'google-map')
-		if ( in_array( $widget_type, array( 'google_maps', 'ea-google-map', 'google-map', 'map' ), true ) && ! empty( $this->contact_info['address'] ) ) {
-			$element['settings']['address'] = esc_html( $this->contact_info['address'] );
+		// 12. Widget de Mapas de Google (Elementor Core y Addons como EA, UAEL, Premium, Happy, etc.)
+		$is_map_widget = (
+			strpos( $widget_type, 'map' ) !== false ||
+			strpos( $widget_type, 'google' ) !== false ||
+			isset( $element['settings']['address'] ) ||
+			isset( $element['settings']['map_address'] ) ||
+			isset( $element['settings']['location'] )
+		);
+
+		if ( $is_map_widget ) {
+			$address_val = ! empty( $this->contact_info['address'] ) ? $this->contact_info['address'] : 'Calle Velázquez 45, 28001 Madrid, España';
+			$element['settings']['address']                 = esc_html( $address_val );
+			$element['settings']['map_address']             = esc_html( $address_val );
+			$element['settings']['location']                = esc_html( $address_val );
+			$element['settings']['eael_google_map_address'] = esc_html( $address_val );
+			$element['settings']['premium_maps_address']     = esc_html( $address_val );
+			$element['settings']['title']                    = 'Ubicación';
 			$this->stats['headings_replaced']++;
 		}
 
@@ -618,7 +632,46 @@ class WP_Autocontent_Elementor_Mutator {
 			}
 		}
 
-		// 14. Adaptación Inteligente de Datos de Contacto en Lista de Iconos ('icon-list')
+		// 14. Formulario de Contacto (Elementor Pro Form y Addons de Contacto) -> Poner en Español y replicar campos
+		if ( strpos( $widget_type, 'form' ) !== false || 'form' === $widget_type ) {
+			$element['settings']['form_name']          = 'Formulario de Contacto';
+			$element['settings']['button_text']        = 'Enviar mensaje';
+			$element['settings']['submit_button_text'] = 'Enviar mensaje';
+
+			if ( ! empty( $element['settings']['form_fields'] ) && is_array( $element['settings']['form_fields'] ) ) {
+				$custom_fields = ! empty( $this->contact_info['form_fields'] ) ? $this->contact_info['form_fields'] : array();
+
+				foreach ( $element['settings']['form_fields'] as $f_idx => &$field ) {
+					if ( ! is_array( $field ) ) {
+						continue;
+					}
+					$type  = isset( $field['field_type'] ) ? strtolower( $field['field_type'] ) : '';
+					$label = isset( $field['field_label'] ) ? strtolower( $field['field_label'] ) : '';
+
+					if ( 'email' === $type || strpos( $label, 'email' ) !== false || strpos( $label, 'mail' ) !== false || strpos( $label, 'correo' ) !== false ) {
+						$field['field_label'] = 'Correo electrónico';
+						$field['placeholder'] = 'ejemplo@dominio.com';
+					} elseif ( 'tel' === $type || strpos( $label, 'phone' ) !== false || strpos( $label, 'tel' ) !== false || strpos( $label, 'móvil' ) !== false || strpos( $label, 'celular' ) !== false ) {
+						$field['field_label'] = 'Teléfono / Móvil';
+						$field['placeholder'] = '+34 600 000 000';
+					} elseif ( 'textarea' === $type || strpos( $label, 'message' ) !== false || strpos( $label, 'mensaje' ) !== false || strpos( $label, 'comment' ) !== false ) {
+						$field['field_label'] = 'Mensaje / Consulta';
+						$field['placeholder'] = 'Escribe aquí tu mensaje o consulta...';
+					} elseif ( 'text' === $type || strpos( $label, 'name' ) !== false || strpos( $label, 'nombre' ) !== false ) {
+						$field['field_label'] = 'Nombre completo';
+						$field['placeholder'] = 'Tu nombre completo';
+					} else {
+						if ( ! empty( $custom_fields[ $f_idx ] ) ) {
+							$field['field_label'] = esc_html( $custom_fields[ $f_idx ] );
+							$field['placeholder'] = esc_html( $custom_fields[ $f_idx ] );
+						}
+					}
+				}
+			}
+			$this->stats['headings_replaced']++;
+		}
+
+		// 15. Adaptación Inteligente de Datos de Contacto en Lista de Iconos ('icon-list') y Cajas de Contacto
 		if ( 'icon-list' === $widget_type && ! empty( $element['settings']['icon_list'] ) && is_array( $element['settings']['icon_list'] ) ) {
 			foreach ( $element['settings']['icon_list'] as &$item ) {
 				if ( ! is_array( $item ) ) {
@@ -626,23 +679,24 @@ class WP_Autocontent_Elementor_Mutator {
 				}
 				$icon_val = isset( $item['selected_icon']['value'] ) ? strtolower( $item['selected_icon']['value'] ) : '';
 				$orig_url = isset( $item['link']['url'] ) ? strtolower( $item['link']['url'] ) : '';
+				$text_val = isset( $item['text'] ) ? strtolower( $item['text'] ) : '';
 
 				// Teléfono / Móvil
-				if ( ( strpos( $icon_val, 'phone' ) !== false || strpos( $icon_val, 'mobile' ) !== false || strpos( $icon_val, 'whatsapp' ) !== false || strpos( $orig_url, 'tel:' ) !== false ) && ! empty( $this->contact_info['phones'] ) ) {
+				if ( ( strpos( $icon_val, 'phone' ) !== false || strpos( $icon_val, 'mobile' ) !== false || strpos( $icon_val, 'whatsapp' ) !== false || strpos( $orig_url, 'tel:' ) !== false || strpos( $text_val, 'teléfono' ) !== false || strpos( $text_val, 'phone' ) !== false ) && ! empty( $this->contact_info['phones'] ) ) {
 					$phone_val           = $this->contact_info['phones'][0];
 					$item['text']        = esc_html( $phone_val );
 					$item['link']['url'] = 'tel:' . preg_replace( '/[^0-9\+]/', '', $phone_val );
 					$this->stats['headings_replaced']++;
 				}
 				// Email / Correo
-				elseif ( ( strpos( $icon_val, 'envelope' ) !== false || strpos( $icon_val, 'at' ) !== false || strpos( $icon_val, 'mail' ) !== false || strpos( $orig_url, 'mailto:' ) !== false ) && ! empty( $this->contact_info['emails'] ) ) {
+				elseif ( ( strpos( $icon_val, 'envelope' ) !== false || strpos( $icon_val, 'at' ) !== false || strpos( $icon_val, 'mail' ) !== false || strpos( $orig_url, 'mailto:' ) !== false || strpos( $text_val, 'email' ) !== false || strpos( $text_val, 'correo' ) !== false ) && ! empty( $this->contact_info['emails'] ) ) {
 					$email_val           = $this->contact_info['emails'][0];
 					$item['text']        = esc_html( $email_val );
 					$item['link']['url'] = 'mailto:' . esc_attr( $email_val );
 					$this->stats['headings_replaced']++;
 				}
 				// Dirección / Ubicación
-				elseif ( ( strpos( $icon_val, 'map' ) !== false || strpos( $icon_val, 'location' ) !== false || strpos( $icon_val, 'marker' ) !== false || strpos( $icon_val, 'pin' ) !== false ) && ! empty( $this->contact_info['address'] ) ) {
+				elseif ( ( strpos( $icon_val, 'map' ) !== false || strpos( $icon_val, 'location' ) !== false || strpos( $icon_val, 'marker' ) !== false || strpos( $icon_val, 'pin' ) !== false || strpos( $text_val, 'dirección' ) !== false || strpos( $text_val, 'address' ) !== false ) && ! empty( $this->contact_info['address'] ) ) {
 					$item['text'] = esc_html( $this->contact_info['address'] );
 					$this->stats['headings_replaced']++;
 				}

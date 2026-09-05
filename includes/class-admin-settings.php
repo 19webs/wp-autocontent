@@ -638,10 +638,11 @@ class WP_Autocontent_Admin_Settings {
 			}
 
 			$contact_data = array(
-				'phones'  => isset( $scraped['contact']['phones'] ) ? $scraped['contact']['phones'] : array(),
-				'emails'  => isset( $scraped['contact']['emails'] ) ? $scraped['contact']['emails'] : array(),
-				'address' => isset( $scraped['contact']['address'] ) ? $scraped['contact']['address'] : '',
-				'logos'   => $imported_logos,
+				'phones'      => ! empty( $scraped['contact']['phones'] ) ? $scraped['contact']['phones'] : array( '+34 912 345 678' ),
+				'emails'      => ! empty( $scraped['contact']['emails'] ) ? $scraped['contact']['emails'] : array( 'info@empresa.com' ),
+				'address'     => ! empty( $scraped['contact']['address'] ) ? $scraped['contact']['address'] : 'Calle Velázquez 45, 28001 Madrid, España',
+				'logos'       => $imported_logos,
+				'form_fields' => ! empty( $scraped['contact']['form_fields'] ) ? $scraped['contact']['form_fields'] : array( 'Nombre completo', 'Correo electrónico', 'Teléfono / Móvil', 'Asunto', 'Mensaje' ),
 			);
 		} else { // 'gemini'
 			if ( empty( $gemini_sector ) ) {
@@ -664,6 +665,14 @@ class WP_Autocontent_Admin_Settings {
 
 			$headings   = $generated['headings'];
 			$paragraphs = $generated['paragraphs'];
+
+			$contact_data = array(
+				'phones'      => array( '+34 912 345 678' ),
+				'emails'      => array( 'info@empresa.com' ),
+				'address'     => 'Calle Velázquez 45, 28001 Madrid, España',
+				'logos'       => array(),
+				'form_fields' => array( 'Nombre completo', 'Correo electrónico', 'Teléfono / Móvil', 'Asunto', 'Mensaje' ),
+			);
 		}
 
 		// 2. Procesar Imágenes (Pexels, Unsplash, Pixabay) o Fallback si faltan ranuras

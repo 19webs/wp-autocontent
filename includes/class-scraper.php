@@ -169,15 +169,65 @@ class WP_Autocontent_Scraper {
 			}
 		}
 
-		// Extraer Dirección Física (nodos address, Schema.org o clases de ubicación)
-		$addr_nodes = $xpath->query( '//address | //*[@itemprop="address"] | //*[contains(@class, "address")] | //*[contains(@class, "location")] | //*[contains(@class, "contacto")]' );
-		if ( $addr_nodes ) {
-			foreach ( $addr_nodes as $node ) {
-				$txt = sanitize_text_field( trim( $node->textContent ) );
-				$len = mb_strlen( $txt, 'UTF-8' );
-				if ( $len >= 10 && $len <= 150 && ! in_array( strtolower( $txt ), array( 'contacto', 'ubicación', 'donde estamos' ), true ) ) {
-					$address = $txt;
-					break;
+		// 1. Intentar extraer Dirección desde Iframe de Google Maps
+		$map_iframes = $xpath->query( '//iframe[contains(@src, "google.com/maps") or contains(@src, "maps.google")]' );
+		if ( $map_iframes ) {
+			foreach ( $map_iframes as $iframe ) {
+				$src_attr = $iframe->getAttribute( 'src' );
+				if ( ! empty( $src_attr ) ) {
+					$parsed_url = wp_parse_url( $src_attr );
+					if ( ! empty( $parsed_url['query'] ) ) {
+						parse_str( $parsed_url['query'], $query_params );
+						if ( ! empty( $query_params['q'] ) ) {
+							$address = sanitize_text_field( trim( $query_params['q'] ) );
+							break;
+						} elseif ( ! empty( $query_params['query'] ) ) {
+							$address = sanitize_text_field( trim( $query_params['query'] ) );
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		// 2. Extraer Dirección Física desde DOM (nodos address, Schema.org, footer o clases de ubicación)
+		if ( empty( $address ) ) {
+			$addr_nodes = $xpath->query( '//address | //*[@itemprop="address"] | //*[contains(@class, "address")] | //*[contains(@class, "location")] | //*[contains(@class, "contacto")] | //footer//*[contains(@class, "info") or contains(@class, "contact")]' );
+			if ( $addr_nodes ) {
+				foreach ( $addr_nodes as $node ) {
+					$txt = sanitize_text_field( trim( $node->textContent ) );
+					$len = mb_strlen( $txt, 'UTF-8' );
+					if ( $len >= 10 && $len <= 150 && ! in_array( strtolower( $txt ), array( 'contacto', 'ubicación', 'donde estamos', 'dónde estamos', 'location' ), true ) ) {
+						$address = $txt;
+						break;
+					}
+				}
+			}
+		}
+
+		// 3. Fallback: Buscar expresiones de direcciones reales en el HTML (Calle, Av., Plaza, Paseo, Postal Codes)
+		if ( empty( $address ) ) {
+			if ( preg_match( '/(?:Calle|Avda\.?|Avenida|Plaza|Paseo|C\/|Ctra\.?|Carretera|Polígono|Rua|Carrera|Street|St\.|Avenue|Ave\.|Road|Rd\.)\s+[^,\n<]{5,60}(?:,\s*\d{4,5})?(?:,\s*[A-ZÁÉÍÓÚa-záéíóú\s]{3,20})?/u', $html, $addr_match ) ) {
+				$address = sanitize_text_field( trim( $addr_match[0] ) );
+			}
+		}
+
+		// Extraer Campos de Formularios de Contacto de la web escaneada
+		$form_fields = array();
+		$input_nodes = $xpath->query( '//form//input | //form//textarea | //form//select' );
+		if ( $input_nodes ) {
+			foreach ( $input_nodes as $input ) {
+				$type  = strtolower( $input->getAttribute( 'type' ) );
+				$name  = $input->getAttribute( 'name' );
+				$place = $input->getAttribute( 'placeholder' );
+				$id    = $input->getAttribute( 'id' );
+
+				if ( ! in_array( $type, array( 'hidden', 'submit', 'button', 'nonce', 'checkbox', 'radio' ), true ) ) {
+					$label_text = ! empty( $place ) ? $place : ( ! empty( $name ) ? $name : $id );
+					$clean_lbl  = sanitize_text_field( trim( $label_text ) );
+					if ( ! empty( $clean_lbl ) && strlen( $clean_lbl ) >= 2 && ! in_array( $clean_lbl, $form_fields, true ) ) {
+						$form_fields[] = ucfirst( str_replace( array( '_', '-' ), ' ', $clean_lbl ) );
+					}
 				}
 			}
 		}
@@ -204,10 +254,11 @@ class WP_Autocontent_Scraper {
 			'paragraphs' => array_values( $paragraphs ),
 			'images'     => array_values( $images ),
 			'contact'    => array(
-				'phones'  => array_values( array_slice( $phones, 0, 5 ) ),
-				'emails'  => array_values( array_slice( $emails, 0, 5 ) ),
-				'address' => $address,
-				'logos'   => array_values( array_slice( $logos, 0, 15 ) ),
+				'phones'      => array_values( array_slice( $phones, 0, 5 ) ),
+				'emails'      => array_values( array_slice( $emails, 0, 5 ) ),
+				'address'     => $address,
+				'logos'       => array_values( array_slice( $logos, 0, 15 ) ),
+				'form_fields' => array_values( array_slice( $form_fields, 0, 8 ) ),
 			),
 		);
 	}
