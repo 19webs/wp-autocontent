@@ -773,21 +773,99 @@ jQuery(document).ready(function ($) {
 	// ==========================================
 	// 7. PESTAÑA 4: GENERADOR DE BLOG CON IA
 	// ==========================================
+	var aiPostsPage = 1;
+
+	function loadAIPosts(page) {
+		aiPostsPage = page || 1;
+		var $tbody = $('#wpac-ai-posts-tbody');
+
+		$tbody.html('<tr><td colspan="6"><span class="wpac-spinner wpac-spinner-dark"></span> Cargando historial de entradas...</td></tr>');
+
+		$.ajax({
+			url: WPAutocontent.ajax_url,
+			type: 'POST',
+			data: {
+				action: 'wp_autocontent_get_ai_posts',
+				nonce: WPAutocontent.nonce,
+				page: aiPostsPage
+			},
+			success: function (response) {
+				if (!response.success) {
+					$tbody.html('<tr><td colspan="6">Error al cargar historial: ' + response.data.message + '</td></tr>');
+					return;
+				}
+
+				var posts = response.data.posts || [];
+				if (posts.length === 0) {
+					$tbody.html('<tr><td colspan="6">Aún no se han generado entradas con IA. ¡Prueba a crear tu primera entrada arriba!</td></tr>');
+					$('#wpac-ai-posts-pagination-info').text('0 entradas');
+					$('#wpac-ai-posts-prev-page, #wpac-ai-posts-next-page').prop('disabled', true);
+					return;
+				}
+
+				var html = '';
+				$.each(posts, function (idx, item) {
+					html += '<tr>';
+					html += '<td><strong>' + item.title + '</strong></td>';
+					html += '<td><em>' + item.topic + '</em></td>';
+					html += '<td><span class="wpac-badge wpac-badge-info">' + item.word_count + ' palabras</span></td>';
+					html += '<td><span class="wpac-status-pill status-' + item.status + '">' + item.status + '</span></td>';
+					html += '<td><small>' + item.date + '</small></td>';
+					html += '<td style="text-align: right;">';
+					html += '<a href="' + item.edit_link + '" target="_blank" class="button button-small"><span class="dashicons dashicons-edit"></span> Editar</a> ';
+					html += '<a href="' + item.view_link + '" target="_blank" class="button button-small"><span class="dashicons dashicons-visibility"></span> Ver</a>';
+					html += '</td>';
+					html += '</tr>';
+				});
+
+				$tbody.html(html);
+				$('#wpac-ai-posts-pagination-info').text('Página ' + response.data.current_page + ' de ' + response.data.total_pages + ' (' + response.data.total_items + ' total)');
+				$('#wpac-ai-posts-prev-page').prop('disabled', response.data.current_page <= 1);
+				$('#wpac-ai-posts-next-page').prop('disabled', response.data.current_page >= response.data.total_pages);
+			},
+			error: function () {
+				$tbody.html('<tr><td colspan="6">Error de servidor al obtener el historial.</td></tr>');
+			}
+		});
+	}
+
+	// Al hacer clic en la pestaña de Generador de Blog IA, cargar el historial
+	$(document).on('click', '.wpac-tab-btn[data-tab="tab-blog-generator"]', function () {
+		loadAIPosts(1);
+	});
+
+	$('#wpac-ai-posts-prev-page').on('click', function (e) {
+		e.preventDefault();
+		if (aiPostsPage > 1) {
+			aiPostsPage--;
+			loadAIPosts(aiPostsPage);
+		}
+	});
+
+	$('#wpac-ai-posts-next-page').on('click', function (e) {
+		e.preventDefault();
+		aiPostsPage++;
+		loadAIPosts(aiPostsPage);
+	});
+
+	// Ejecutar Generación de Artículo de Blog
 	$('#wpac-generate-blog-btn').on('click', function (e) {
 		e.preventDefault();
 		var $btn = $(this);
 		var topic = ($('#blog_topic').val() || '').trim();
+		var customTitle = ($('#blog_custom_title').val() || '').trim();
+		var wordCount = $('#blog_word_count').val() || 800;
 		var tone = $('#blog_tone').val() || 'Profesional y cercano';
 		var status = $('#blog_status').val() || 'draft';
 		var includeFeatured = $('#blog_include_featured').is(':checked') ? 1 : 0;
 		var includeBody = $('#blog_include_body_images').is(':checked') ? 1 : 0;
 
-		if (!topic) {
-			alert('Por favor, escribe una temática o prompt para el artículo de blog.');
+		if (!topic && !customTitle) {
+			alert('Por favor, escribe una temática o un título para el artículo de blog.');
 			return;
 		}
 
-		$btn.prop('disabled', true).html('<span class="wpac-spinner"></span> Generando artículo con Gemini IA...');
+		$btn.prop('disabled', true).html('<span class="wpac-spinner"></span> Generando artículo de ~' + wordCount + ' palabras con Gemini IA...');
 		$('#wpac-blog-status-container').removeClass('wpac-hidden');
 		$('#wpac-blog-status-text').removeClass('status-success status-error').addClass('status-testing').html('<span class="wpac-spinner wpac-spinner-dark"></span> Redactando post e inyectando fotos de stock...');
 
@@ -798,6 +876,8 @@ jQuery(document).ready(function ($) {
 				action: 'wp_autocontent_generate_blog_post',
 				nonce: WPAutocontent.nonce,
 				topic: topic,
+				custom_title: customTitle,
+				word_count: wordCount,
 				tone: tone,
 				status: status,
 				include_featured: includeFeatured,
@@ -808,6 +888,8 @@ jQuery(document).ready(function ($) {
 				if (response.success) {
 					$('#wpac-blog-status-text').removeClass('status-testing status-error').addClass('status-success').html(response.data.message);
 					$('#blog_topic').val('');
+					$('#blog_custom_title').val('');
+					loadAIPosts(1);
 				} else {
 					$('#wpac-blog-status-text').removeClass('status-testing status-success').addClass('status-error').html('🔴 Error: ' + response.data.message);
 				}

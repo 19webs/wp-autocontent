@@ -286,22 +286,28 @@ class WP_Autocontent_Gemini_Client {
 	 *
 	 * @param string $topic Temática o prompt del artículo.
 	 * @param string $tone Tono de comunicación.
+	 * @param int $target_words Número aproximado de palabras deseadas.
+	 * @param string $custom_title Título específico opcional.
 	 * @return array|WP_Error Array con 'title', 'excerpt', 'keyword_for_images', y 'sections' o WP_Error.
 	 */
-	public function generate_blog_article( string $topic, string $tone = 'Profesional y cercano' ) {
+	public function generate_blog_article( string $topic, string $tone = 'Profesional y cercano', int $target_words = 800, string $custom_title = '' ) {
 		if ( empty( $this->api_key ) ) {
 			return new WP_Error( 'missing_api_key', __( 'No se ha configurado la API Key de Google Gemini.', 'wp-autocontent' ) );
 		}
 
 		$models_to_try = $this->discover_active_models();
 
+		$title_instruction = ! empty( $custom_title ) ? sprintf( ' El título del artículo debe ser EXACTAMENTE: "%s".', sanitize_text_field( $custom_title ) ) : '';
+
 		$prompt = sprintf(
-			'Actúa como un redactor SEO y copywriter profesional en ESPAÑOL. Escribe un artículo de blog exhaustivo, interesante y optimizado sobre el tema: "%s" con un tono "%s". ' .
-			'El artículo debe constar de 3 a 5 secciones bien desarrolladas. ' .
+			'Actúa como un redactor SEO y copywriter profesional en ESPAÑOL. Escribe un artículo de blog exhaustivo, ameno y muy bien desarrollado sobre el tema: "%s" con un tono "%s".%s ' .
+			'El artículo debe constar de 3 a 6 secciones extensas con un total acumulado de APROXIMADAMENTE %d palabras en todo el texto. ' .
 			'Debes devolver ÚNICAMENTE un objeto JSON estricto con el siguiente esquema exacto: ' .
 			'{"title": "Título SEO atrayente", "excerpt": "Extracto/Resumen corto del post de 140-160 caracteres", "keyword_for_images": "palabra clave en ingles para buscar foto principal", "sections": [{"heading": "Subtítulo H2 de la sección", "content": "Texto amplio y detallado de la sección...", "image_keyword": "palabra clave en ingles para foto de esta seccion"}]}',
 			sanitize_text_field( $topic ),
-			sanitize_text_field( $tone )
+			sanitize_text_field( $tone ),
+			$title_instruction,
+			max( 300, $target_words )
 		);
 
 		$last_error = null;
@@ -363,13 +369,15 @@ class WP_Autocontent_Gemini_Client {
 
 			$article = json_decode( $raw_text, true );
 
-			if ( ! is_array( $article ) || empty( $article['title'] ) || empty( $article['sections'] ) ) {
+			if ( ! is_array( $article ) || empty( $article['sections'] ) ) {
 				$last_error = new WP_Error( 'gemini_invalid_json', __( 'El formato JSON devuelto por Gemini no coincide con el esquema del artículo de blog.', 'wp-autocontent' ) );
 				continue;
 			}
 
+			$final_title = ! empty( $custom_title ) ? sanitize_text_field( $custom_title ) : ( isset( $article['title'] ) ? sanitize_text_field( $article['title'] ) : sanitize_text_field( $topic ) );
+
 			return array(
-				'title'              => sanitize_text_field( $article['title'] ),
+				'title'              => $final_title,
 				'excerpt'            => isset( $article['excerpt'] ) ? sanitize_text_field( $article['excerpt'] ) : '',
 				'keyword_for_images' => isset( $article['keyword_for_images'] ) ? sanitize_text_field( $article['keyword_for_images'] ) : 'blog',
 				'sections'           => (array) $article['sections'],

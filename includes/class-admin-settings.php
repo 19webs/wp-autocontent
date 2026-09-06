@@ -36,6 +36,7 @@ class WP_Autocontent_Admin_Settings {
 		add_action( 'wp_ajax_wp_autocontent_search_replacement_images', array( $this, 'ajax_search_replacement_images' ) );
 		add_action( 'wp_ajax_wp_autocontent_apply_image_replacement', array( $this, 'ajax_apply_image_replacement' ) );
 		add_action( 'wp_ajax_wp_autocontent_generate_blog_post', array( $this, 'ajax_generate_blog_post' ) );
+		add_action( 'wp_ajax_wp_autocontent_get_ai_posts', array( $this, 'ajax_get_ai_posts' ) );
 	}
 
 	/**
@@ -457,7 +458,21 @@ class WP_Autocontent_Admin_Settings {
 								<input type="text" id="blog_topic" name="blog_topic" placeholder="Ej. 5 Consejos esenciales para el mantenimiento de un barco en verano..." />
 							</div>
 
+							<div class="wpac-field">
+								<label for="blog_custom_title">Título específico de la entrada (Opcional):</label>
+								<input type="text" id="blog_custom_title" name="blog_custom_title" placeholder="Dejar en blanco para que Gemini genere un título SEO automáticamente..." />
+							</div>
+
 							<div class="wpac-field-row">
+								<div>
+									<label for="blog_word_count">Número de Palabras Aproximadas:</label>
+									<select id="blog_word_count" name="blog_word_count">
+										<option value="500">Aprox. 500 palabras (Corto)</option>
+										<option value="800" selected>Aprox. 800 palabras (Estándar SEO)</option>
+										<option value="1200">Aprox. 1200 palabras (Extenso)</option>
+										<option value="1600">Aprox. 1600+ palabras (Guía completa)</option>
+									</select>
+								</div>
 								<div>
 									<label for="blog_tone">Tono de Comunicación:</label>
 									<select id="blog_tone" name="blog_tone">
@@ -497,6 +512,39 @@ class WP_Autocontent_Admin_Settings {
 								</div>
 							</div>
 						</form>
+
+						<!-- Tabla de Entradas Creadas con IA -->
+						<div class="wpac-section-block" style="margin-top: 32px;">
+							<h3><span class="dashicons dashicons-list-view"></span> Historial de Entradas Creadas con IA</h3>
+							<p class="description">Control y seguimiento de todas las entradas generadas con Inteligencia Artificial.</p>
+
+							<div class="wpac-table-container">
+								<table class="wp-list-table widefat fixed striped" id="wpac-ai-posts-table">
+									<thead>
+										<tr>
+											<th>Título de la Entrada</th>
+											<th>Temática / Prompt</th>
+											<th>Nº de Palabras</th>
+											<th>Estado WP</th>
+											<th>Fecha</th>
+											<th style="width: 140px; text-align: right;">Acciones</th>
+										</tr>
+									</thead>
+									<tbody id="wpac-ai-posts-tbody">
+										<tr><td colspan="6">Cargando historial de entradas...</td></tr>
+									</tbody>
+								</table>
+							</div>
+
+							<div class="wpac-pagination-container">
+								<span id="wpac-ai-posts-pagination-info" class="wpac-pagination-info">Cargando...</span>
+								<div class="wpac-pagination-buttons">
+									<button type="button" class="button" id="wpac-ai-posts-prev-page" disabled>&laquo; Anterior</button>
+									<span id="wpac-ai-posts-page-numbers" class="wpac-page-numbers"></span>
+									<button type="button" class="button" id="wpac-ai-posts-next-page">Siguiente &raquo;</button>
+								</div>
+							</div>
+						</div>
 					</div>
 				</div>
 
@@ -1348,13 +1396,19 @@ class WP_Autocontent_Admin_Settings {
 		}
 
 		$topic            = isset( $_POST['topic'] ) ? sanitize_text_field( wp_unslash( $_POST['topic'] ) ) : '';
+		$custom_title     = isset( $_POST['custom_title'] ) ? sanitize_text_field( wp_unslash( $_POST['custom_title'] ) ) : '';
+		$word_count       = isset( $_POST['word_count'] ) ? (int) $_POST['word_count'] : 800;
 		$tone             = isset( $_POST['tone'] ) ? sanitize_text_field( wp_unslash( $_POST['tone'] ) ) : 'Profesional y cercano';
 		$status           = isset( $_POST['status'] ) ? sanitize_text_field( wp_unslash( $_POST['status'] ) ) : 'draft';
 		$include_featured = ! empty( $_POST['include_featured'] );
 		$include_body     = ! empty( $_POST['include_body_images'] );
 
+		if ( empty( $topic ) && empty( $custom_title ) ) {
+			wp_send_json_error( array( 'message' => __( 'Por favor, escribe una temática o un título para el artículo de blog.', 'wp-autocontent' ) ) );
+		}
+
 		if ( empty( $topic ) ) {
-			wp_send_json_error( array( 'message' => __( 'Por favor, escribe una temática o prompt para el artículo de blog.', 'wp-autocontent' ) ) );
+			$topic = $custom_title;
 		}
 
 		$g_key = get_option( 'wp_autocontent_gemini_key', '' );
@@ -1363,7 +1417,7 @@ class WP_Autocontent_Admin_Settings {
 		}
 
 		$gemini  = new WP_Autocontent_Gemini_Client( $g_key );
-		$article = $gemini->generate_blog_article( $topic, $tone );
+		$article = $gemini->generate_blog_article( $topic, $tone, $word_count, $custom_title );
 
 		if ( is_wp_error( $article ) ) {
 			wp_send_json_error( array( 'message' => $article->get_error_message() ) );
@@ -1416,6 +1470,16 @@ class WP_Autocontent_Admin_Settings {
 			wp_send_json_error( array( 'message' => $err_msg ) );
 		}
 
+		// Calcular recuento real de palabras
+		$clean_text   = strip_tags( $html_content );
+		$actual_words = count( preg_split( '/\s+/', trim( $clean_text ) ) );
+
+		// Guardar metadatos para trazabilidad de posts creados con IA
+		update_post_meta( $new_post_id, '_wpac_created_by_ai', 1 );
+		update_post_meta( $new_post_id, '_wpac_ai_topic', $topic );
+		update_post_meta( $new_post_id, '_wpac_ai_word_count', $actual_words );
+		update_post_meta( $new_post_id, '_wpac_created_at', current_time( 'mysql' ) );
+
 		// 3. Descargar e inyectar Imagen Destacada
 		if ( $include_featured && ! empty( $article['keyword_for_images'] ) ) {
 			$feat_kw    = $this->translate_to_english( $article['keyword_for_images'] );
@@ -1429,14 +1493,80 @@ class WP_Autocontent_Admin_Settings {
 
 		wp_send_json_success(
 			array(
-				'message'   => sprintf(
-					__( '🚀 ¡Artículo "%s" creado con éxito (ID: #%d)! Puedes <a href="%s" target="_blank">ver/editar la entrada aquí</a>.', 'wp-autocontent' ),
+				'message'    => sprintf(
+					__( '🚀 ¡Artículo "%s" creado con éxito (%d palabras - ID: #%d)! Puedes <a href="%s" target="_blank">ver/editar la entrada aquí</a>.', 'wp-autocontent' ),
 					esc_html( $article['title'] ),
+					$actual_words,
 					$new_post_id,
 					esc_url( $edit_link )
 				),
-				'post_id'   => $new_post_id,
-				'edit_link' => $edit_link,
+				'post_id'    => $new_post_id,
+				'edit_link'  => $edit_link,
+				'word_count' => $actual_words,
+			)
+		);
+	}
+
+	/**
+	 * AJAX Handler: Obtiene el listado paginado de entradas creadas con IA.
+	 */
+	public function ajax_get_ai_posts(): void {
+		check_ajax_referer( 'wp_autocontent_nonce', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'No tienes permisos suficientes.', 'wp-autocontent' ) ) );
+		}
+
+		$page     = isset( $_POST['page'] ) ? max( 1, (int) $_POST['page'] ) : 1;
+		$per_page = 10;
+
+		$args = array(
+			'post_type'      => 'post',
+			'posts_per_page' => $per_page,
+			'paged'          => $page,
+			'post_status'    => array( 'publish', 'draft', 'private' ),
+			'meta_key'       => '_wpac_created_by_ai',
+			'meta_value'     => '1',
+			'orderby'        => 'date',
+			'order'          => 'DESC',
+		);
+
+		$query = new WP_Query( $args );
+		$posts = array();
+
+		if ( $query->have_posts() ) {
+			while ( $query->have_posts() ) {
+				$query->the_post();
+				$pid        = get_the_ID();
+				$topic      = get_post_meta( $pid, '_wpac_ai_topic', true );
+				$word_count = get_post_meta( $pid, '_wpac_ai_word_count', true );
+				$date       = get_the_date( 'd/m/Y H:i' );
+
+				if ( empty( $word_count ) ) {
+					$clean_txt  = strip_tags( get_the_content( null, false, $pid ) );
+					$word_count = count( preg_split( '/\s+/', trim( $clean_txt ) ) );
+				}
+
+				$posts[] = array(
+					'ID'         => $pid,
+					'title'      => get_the_title( $pid ),
+					'topic'      => ! empty( $topic ) ? $topic : 'General IA',
+					'word_count' => (int) $word_count,
+					'status'     => get_post_status( $pid ),
+					'date'       => $date,
+					'edit_link'  => get_edit_post_link( $pid, 'raw' ),
+					'view_link'  => get_permalink( $pid ),
+				);
+			}
+			wp_reset_postdata();
+		}
+
+		wp_send_json_success(
+			array(
+				'posts'        => $posts,
+				'total_items'  => $query->found_posts,
+				'total_pages'  => $query->max_num_pages,
+				'current_page' => $page,
 			)
 		);
 	}
