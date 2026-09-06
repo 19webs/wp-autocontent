@@ -119,12 +119,42 @@ class WP_Autocontent_Updater {
 	 * @param array $result Resultado de la descompresión.
 	 * @return array Resultado ajustado.
 	 */
+	/**
+	 * Corrige la carpeta del plugin tras descomprimir la actualización desde GitHub.
+	 *
+	 * @param bool  $response Respuesta de la instalación.
+	 * @param array $hook_extra Datos adicionales.
+	 * @param array $result Resultado de la descompresión.
+	 * @return array Resultado ajustado.
+	 */
 	public function post_install( $response, $hook_extra, $result ) {
 		global $wp_filesystem;
 
+		// Solo intervenir si la actualización pertenece a este plugin
+		if ( empty( $hook_extra['plugin'] ) || $hook_extra['plugin'] !== $this->slug ) {
+			return $result;
+		}
+
+		if ( is_wp_error( $result ) || empty( $result['destination'] ) ) {
+			return $result;
+		}
+
 		$plugin_folder = WP_PLUGIN_DIR . '/wp-autocontent';
-		if ( isset( $result['destination'] ) && $result['destination'] !== $plugin_folder ) {
-			$wp_filesystem->move( $result['destination'], $plugin_folder );
+
+		if ( $result['destination'] !== $plugin_folder ) {
+			if ( function_exists( 'copy_dir' ) ) {
+				copy_dir( $result['destination'], $plugin_folder );
+				if ( $wp_filesystem && $wp_filesystem->exists( $result['destination'] ) ) {
+					$wp_filesystem->delete( $result['destination'], true );
+				}
+			} else {
+				if ( $wp_filesystem ) {
+					if ( $wp_filesystem->exists( $plugin_folder ) ) {
+						$wp_filesystem->delete( $plugin_folder, true );
+					}
+					$wp_filesystem->move( $result['destination'], $plugin_folder, true );
+				}
+			}
 			$result['destination'] = $plugin_folder;
 		}
 
@@ -259,37 +289,81 @@ class WP_Autocontent_Updater {
 			wp_send_json_error( array( 'message' => __( 'No tienes permisos suficientes.', 'wp-autocontent' ) ) );
 		}
 
+		@set_time_limit( 300 );
+
 		delete_transient( 'wpac_github_release_cache' );
 
-		$transient = get_site_transient( 'update_plugins' );
-		if ( ! is_object( $transient ) ) {
-			$transient = new stdClass();
+		try {
+			if ( ! function_exists( 'WP_Filesystem' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+			}
+			if ( ! defined( 'FS_METHOD' ) ) {
+				define( 'FS_METHOD', 'direct' );
+			}
+			WP_Filesystem();
+
+			$transient = get_site_transient( 'update_plugins' );
+			if ( ! is_object( $transient ) ) {
+				$transient = new stdClass();
+			}
+			$transient = $this->check_for_update( $transient );
+			set_site_transient( 'update_plugins', $transient );
+
+			include_once ABSPATH . 'wp-admin/includes/file.php';
+			include_once ABSPATH . 'wp-admin/includes/misc.php';
+			include_once ABSPATH . 'wp-admin/includes/plugin.php';
+			include_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+			include_once ABSPATH . 'wp-admin/includes/class-wp-upgrader-skin.php';
+			include_once ABSPATH . 'wp-admin/includes/class-automatic-upgrader-skin.php';
+			include_once ABSPATH . 'wp-admin/includes/class-plugin-upgrader.php';
+
+			add_filter( 'http_request_args', array( $this, 'allow_github_downloads' ), 10, 2 );
+
+			ob_start();
+			$skin     = new Automatic_Upgrader_Skin();
+			$upgrader = new Plugin_Upgrader( $skin );
+			$result   = $upgrader->upgrade( $this->slug );
+			$output   = ob_get_clean();
+
+			remove_filter( 'http_request_args', array( $this, 'allow_github_downloads' ), 10 );
+
+			if ( is_wp_error( $result ) ) {
+				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+			}
+
+			if ( is_wp_error( $skin->get_errors() ) && $skin->get_errors()->has_errors() ) {
+				wp_send_json_error( array( 'message' => $skin->get_errors()->get_error_message() ) );
+			}
+
+			if ( false === $result || null === $result ) {
+				wp_send_json_error( array( 'message' => __( 'No se pudo completar la instalación. Comprueba los permisos de wp-content/plugins/.', 'wp-autocontent' ) ) );
+			}
+
+			if ( ! is_plugin_active( $this->slug ) ) {
+				activate_plugin( $this->slug );
+			}
+
+			wp_send_json_success(
+				array(
+					'message' => __( '✅ ¡Plugin actualizado con éxito! Recargando...', 'wp-autocontent' ),
+					'reload'  => true,
+				)
+			);
+		} catch ( Throwable $e ) {
+			wp_send_json_error( array( 'message' => __( 'Error al instalar la actualización: ', 'wp-autocontent' ) . $e->getMessage() ) );
 		}
-		$transient = $this->check_for_update( $transient );
-		set_site_transient( 'update_plugins', $transient );
+	}
 
-		include_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-		include_once ABSPATH . 'wp-admin/includes/file.php';
-		include_once ABSPATH . 'wp-admin/includes/misc.php';
-		include_once ABSPATH . 'wp-admin/includes/plugin.php';
-
-		$skin     = new Automatic_Upgrader_Skin();
-		$upgrader = new Plugin_Upgrader( $skin );
-		$result   = $upgrader->upgrade( $this->slug );
-
-		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+	/**
+	 * Permite descargas SSL de GitHub ajustando timeout y sslverify.
+	 */
+	public function allow_github_downloads( array $args, string $url ): array {
+		if ( strpos( $url, 'github.com' ) !== false || strpos( $url, 'codeload.github.com' ) !== false ) {
+			$args['sslverify']  = false;
+			$args['timeout']    = 60;
+			$args['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) WP-Autocontent-Updater/1.0';
 		}
-
-		if ( is_wp_error( $skin->get_errors() ) && $skin->get_errors()->has_errors() ) {
-			wp_send_json_error( array( 'message' => $skin->get_errors()->get_error_message() ) );
-		}
-
-		wp_send_json_success(
-			array(
-				'message' => __( '✅ ¡Plugin actualizado con éxito! Recargando...', 'wp-autocontent' ),
-				'reload'  => true,
-			)
-		);
+		return $args;
 	}
 }
+

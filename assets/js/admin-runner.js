@@ -774,6 +774,88 @@ jQuery(document).ready(function ($) {
 	// 7. PESTAÑA 4: GENERADOR DE BLOG CON IA
 	// ==========================================
 	var aiPostsPage = 1;
+	var blogTimerInterval = null;
+
+	// Alternar visibilidad de subcampos según proveedor de imagen y galería
+	$('#blog_image_provider').on('change', function () {
+		var val = $(this).val();
+		if ('custom' === val) {
+			$('#blog_custom_featured_container').removeClass('wpac-hidden');
+		} else {
+			$('#blog_custom_featured_container').addClass('wpac-hidden');
+		}
+	});
+
+	$('#blog_include_gallery').on('change', function () {
+		if ($(this).is(':checked')) {
+			$('#subfields-blog-gallery').removeClass('wpac-hidden');
+		} else {
+			$('#subfields-blog-gallery').addClass('wpac-hidden');
+		}
+	});
+
+	$('#blog_gallery_source').on('change', function () {
+		if ('custom' === $(this).val()) {
+			$('#wpac-custom-gallery-picker-row').removeClass('wpac-hidden');
+		} else {
+			$('#wpac-custom-gallery-picker-row').addClass('wpac-hidden');
+		}
+	});
+
+	// Selector de Imagen Destacada Propia mediante WP Media Frame
+	var customFeaturedFrame;
+	$(document).on('click', '#wpac-select-custom-featured-btn', function (e) {
+		e.preventDefault();
+		if (customFeaturedFrame) {
+			customFeaturedFrame.open();
+			return;
+		}
+
+		customFeaturedFrame = wp.media({
+			title: 'Seleccionar Imagen Destacada de la Biblioteca',
+			button: { text: 'Usar como Imagen Destacada' },
+			multiple: false
+		});
+
+		customFeaturedFrame.on('select', function () {
+			var attachment = customFeaturedFrame.state().get('selection').first().toJSON();
+			$('#blog_custom_featured_id').val(attachment.id);
+			$('#wpac-custom-featured-preview').html('<img src="' + attachment.url + '" style="max-height: 40px; border-radius: 4px;" />');
+		});
+
+		customFeaturedFrame.open();
+	});
+
+	// Selector de Fotos para Galería Propia mediante WP Media Frame (Multiselección)
+	var customGalleryFrame;
+	$(document).on('click', '#wpac-select-custom-gallery-btn', function (e) {
+		e.preventDefault();
+		if (customGalleryFrame) {
+			customGalleryFrame.open();
+			return;
+		}
+
+		customGalleryFrame = wp.media({
+			title: 'Seleccionar Fotos para la Galería de la Entrada',
+			button: { text: 'Usar estas imágenes en la Galería' },
+			multiple: true
+		});
+
+		customGalleryFrame.on('select', function () {
+			var selection = customGalleryFrame.state().get('selection');
+			var ids = [];
+			var html = '';
+			selection.each(function (attachment) {
+				var json = attachment.toJSON();
+				ids.push(json.id);
+				html += '<img src="' + json.url + '" style="width: 44px; height: 44px; object-fit: cover; border-radius: 4px; border: 1px solid #cbd5e1;" />';
+			});
+			$('#blog_custom_gallery_ids').val(ids.join(','));
+			$('#wpac-custom-gallery-preview').html(html);
+		});
+
+		customGalleryFrame.open();
+	});
 
 	function loadAIPosts(page) {
 		aiPostsPage = page || 1;
@@ -805,10 +887,11 @@ jQuery(document).ready(function ($) {
 
 				var html = '';
 				$.each(posts, function (idx, item) {
+					var timeBadge = item.exec_time ? ' <span class="wpac-badge wpac-badge-time"><span class="dashicons dashicons-clock" style="font-size:12px;width:12px;height:12px;vertical-align:middle;"></span> ' + item.exec_time + 's</span>' : '';
 					html += '<tr>';
 					html += '<td><strong>' + item.title + '</strong></td>';
 					html += '<td><em>' + item.topic + '</em></td>';
-					html += '<td><span class="wpac-badge wpac-badge-info">' + item.word_count + ' palabras</span></td>';
+					html += '<td><span class="wpac-badge wpac-badge-info">' + item.word_count + ' palabras</span>' + timeBadge + '</td>';
 					html += '<td><span class="wpac-status-pill status-' + item.status + '">' + item.status + '</span></td>';
 					html += '<td><small>' + item.date + '</small></td>';
 					html += '<td style="text-align: right;">';
@@ -857,8 +940,14 @@ jQuery(document).ready(function ($) {
 		var wordCount = $('#blog_word_count').val() || 800;
 		var tone = $('#blog_tone').val() || 'Profesional y cercano';
 		var status = $('#blog_status').val() || 'draft';
+		var imageProvider = $('#blog_image_provider').val() || 'mix';
+		var customFeaturedId = $('#blog_custom_featured_id').val() || 0;
 		var includeFeatured = $('#blog_include_featured').is(':checked') ? 1 : 0;
 		var includeBody = $('#blog_include_body_images').is(':checked') ? 1 : 0;
+		var includeGallery = $('#blog_include_gallery').is(':checked') ? 1 : 0;
+		var gallerySize = $('#blog_gallery_size').val() || 4;
+		var gallerySource = $('#blog_gallery_source').val() || 'auto';
+		var customGalleryIds = $('#blog_custom_gallery_ids').val() || '';
 
 		if (!topic && !customTitle) {
 			alert('Por favor, escribe una temática o un título para el artículo de blog.');
@@ -867,7 +956,19 @@ jQuery(document).ready(function ($) {
 
 		$btn.prop('disabled', true).html('<span class="wpac-spinner"></span> Generando artículo de ~' + wordCount + ' palabras con Gemini IA...');
 		$('#wpac-blog-status-container').removeClass('wpac-hidden');
-		$('#wpac-blog-status-text').removeClass('status-success status-error').addClass('status-testing').html('<span class="wpac-spinner wpac-spinner-dark"></span> Redactando post e inyectando fotos de stock...');
+		$('#wpac-blog-timer-badge').removeClass('wpac-hidden');
+
+		// Iniciar Cronómetro en Vivo
+		var startTime = Date.now();
+		if (blogTimerInterval) {
+			clearInterval(blogTimerInterval);
+		}
+		blogTimerInterval = setInterval(function () {
+			var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+			$('#wpac-timer-seconds').text(elapsed + 's');
+		}, 100);
+
+		$('#wpac-blog-status-text').removeClass('status-success status-error').addClass('status-testing').html('<span class="wpac-spinner wpac-spinner-dark"></span> Redactando post, formateando maquetación e inyectando fotos...');
 
 		$.ajax({
 			url: WPAutocontent.ajax_url,
@@ -880,12 +981,22 @@ jQuery(document).ready(function ($) {
 				word_count: wordCount,
 				tone: tone,
 				status: status,
+				image_provider: imageProvider,
+				custom_featured_id: customFeaturedId,
 				include_featured: includeFeatured,
-				include_body_images: includeBody
+				include_body_images: includeBody,
+				include_gallery: includeGallery,
+				gallery_size: gallerySize,
+				gallery_source: gallerySource,
+				custom_gallery_ids: customGalleryIds,
+				exec_time: ((Date.now() - startTime) / 1000).toFixed(1)
 			},
 			success: function (response) {
+				clearInterval(blogTimerInterval);
 				$btn.prop('disabled', false).html('<span class="dashicons dashicons-admin-post"></span> Generar y Publicar Artículo de Blog con IA');
 				if (response.success) {
+					var totalTime = response.data.exec_time || ((Date.now() - startTime) / 1000).toFixed(1);
+					$('#wpac-timer-seconds').text(totalTime + 's');
 					$('#wpac-blog-status-text').removeClass('status-testing status-error').addClass('status-success').html(response.data.message);
 					$('#blog_topic').val('');
 					$('#blog_custom_title').val('');
@@ -895,6 +1006,7 @@ jQuery(document).ready(function ($) {
 				}
 			},
 			error: function (xhr, status, error) {
+				clearInterval(blogTimerInterval);
 				$btn.prop('disabled', false).html('<span class="dashicons dashicons-admin-post"></span> Generar y Publicar Artículo de Blog con IA');
 				$('#wpac-blog-status-text').removeClass('status-testing status-success').addClass('status-error').html('🔴 Error de servidor: ' + error);
 			}

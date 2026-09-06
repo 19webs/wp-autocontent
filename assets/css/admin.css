@@ -370,6 +370,32 @@
 	color: #4b5563;
 }
 
+.wpac-badge-info {
+	background: #e0f2fe !important;
+	color: #0369a1 !important;
+	font-weight: 700 !important;
+	border: 1px solid #bae6fd;
+	padding: 4px 10px !important;
+	border-radius: 20px !important;
+	font-size: 12px !important;
+	display: inline-flex !important;
+	align-items: center;
+	gap: 4px;
+}
+
+.wpac-badge-time {
+	background: #f1f5f9 !important;
+	color: #334155 !important;
+	font-weight: 600 !important;
+	border: 1px solid #cbd5e1;
+	padding: 4px 10px !important;
+	border-radius: 20px !important;
+	font-size: 12px !important;
+	display: inline-flex !important;
+	align-items: center;
+	gap: 4px;
+}
+
 /* Botón Hero y Progreso */
 .wpac-runner-section {
 	margin-top: 24px;

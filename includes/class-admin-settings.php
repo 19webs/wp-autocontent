@@ -82,6 +82,8 @@ class WP_Autocontent_Admin_Settings {
 			return;
 		}
 
+		wp_enqueue_media();
+
 		wp_enqueue_style(
 			'wp-autocontent-admin-css',
 			WP_AUTOCONTENT_URL . 'assets/css/admin.css',
@@ -491,21 +493,81 @@ class WP_Autocontent_Admin_Settings {
 								</div>
 							</div>
 
+							<div class="wpac-field-row" style="margin-top: 14px;">
+								<div>
+									<label for="blog_image_provider">Origen / Proveedor de Imágenes:</label>
+									<select id="blog_image_provider" name="blog_image_provider">
+										<option value="mix" selected>🔀 Mezclar y Alternar APIs de Stock (Pexels + Unsplash + Pixabay)</option>
+										<option value="pexels">📷 Pexels API (Fotos HD)</option>
+										<option value="unsplash">📸 Unsplash API (Fotos Profesionales)</option>
+										<option value="pixabay">🎨 Pixabay API (Imágenes Libres)</option>
+										<option value="custom">📁 Biblioteca de Medios de WordPress (Usar mis propias imágenes)</option>
+									</select>
+								</div>
+								<div id="blog_custom_featured_container" class="wpac-hidden">
+									<label>Imagen Destacada Propia:</label>
+									<div style="display: flex; gap: 8px; align-items: center;">
+										<input type="hidden" id="blog_custom_featured_id" name="blog_custom_featured_id" value="" />
+										<button type="button" id="wpac-select-custom-featured-btn" class="button">
+											<span class="dashicons dashicons-format-image"></span> Elegir de Galería
+										</button>
+										<div id="wpac-custom-featured-preview"></div>
+									</div>
+								</div>
+							</div>
+
 							<div class="wpac-field" style="margin-top: 14px;">
 								<label class="wpac-checkbox-option">
 									<input type="checkbox" id="blog_include_featured" name="blog_include_featured" value="1" checked />
-									<strong>Descargar e inyectar Imagen Destacada automática desde Pexels API</strong>
+									<strong>Inyectar Imagen Destacada automática en la entrada</strong>
 								</label>
 								<label class="wpac-checkbox-option" style="margin-top: 6px;">
 									<input type="checkbox" id="blog_include_body_images" name="blog_include_body_images" value="1" checked />
-									<strong>Inyectar imágenes de stock ilustrativas en cada sección del cuerpo del post</strong>
+									<strong>Inyectar imágenes ilustrativas en cada sección del cuerpo del post</strong>
+								</label>
+								<label class="wpac-checkbox-option" style="margin-top: 6px;">
+									<input type="checkbox" id="blog_include_gallery" name="blog_include_gallery" value="1" />
+									<strong>Añadir Galería de Fotos (Addon Elementor / Grid)</strong>
 								</label>
 							</div>
 
+							<div id="subfields-blog-gallery" class="wpac-subfields wpac-hidden">
+								<div class="wpac-field-row">
+									<div>
+										<label for="blog_gallery_size">Número de fotos en la Galería:</label>
+										<select id="blog_gallery_size" name="blog_gallery_size">
+											<option value="3">3 fotos</option>
+											<option value="4" selected>4 fotos</option>
+											<option value="6">6 fotos</option>
+											<option value="8">8 fotos</option>
+										</select>
+									</div>
+									<div>
+										<label for="blog_gallery_source">Origen de las fotos de Galería:</label>
+										<select id="blog_gallery_source" name="blog_gallery_source">
+											<option value="auto" selected>🤖 Generar automáticamente según la temática (Stock APIs)</option>
+											<option value="custom">📁 Seleccionar mis propias fotos de la Biblioteca WP</option>
+										</select>
+									</div>
+								</div>
+								<div id="wpac-custom-gallery-picker-row" class="wpac-hidden" style="margin-top: 12px;">
+									<input type="hidden" id="blog_custom_gallery_ids" name="blog_custom_gallery_ids" value="" />
+									<button type="button" id="wpac-select-custom-gallery-btn" class="button button-secondary">
+										<span class="dashicons dashicons-images-alt2"></span> Seleccionar Fotos para la Galería (Medios WP)
+									</button>
+									<div id="wpac-custom-gallery-preview" style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap;"></div>
+								</div>
+							</div>
+
 							<div class="wpac-runner-section">
-								<button type="button" id="wpac-generate-blog-btn" class="button button-primary button-hero">
-									<span class="dashicons dashicons-admin-post"></span> Generar y Publicar Artículo de Blog con IA
-								</button>
+								<div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+									<button type="button" id="wpac-generate-blog-btn" class="button button-primary button-hero">
+										<span class="dashicons dashicons-admin-post"></span> Generar y Publicar Artículo de Blog con IA
+									</button>
+									<div id="wpac-blog-timer-badge" class="wpac-badge-time wpac-hidden" style="font-size: 14px; padding: 6px 14px; border-radius: 20px;">
+										<span class="dashicons dashicons-clock" style="vertical-align: text-top; color: #4f46e5;"></span> ⏱️ Tiempo: <strong id="wpac-timer-seconds" style="color: #4f46e5;">0.0s</strong>
+									</div>
+								</div>
 
 								<div id="wpac-blog-status-container" class="wpac-hidden" style="margin-top: 16px;">
 									<div id="wpac-blog-status-text" class="wpac-field-status"></div>
@@ -1386,7 +1448,46 @@ class WP_Autocontent_Admin_Settings {
 	}
 
 	/**
-	 * AJAX Handler: Generación de artículo de blog completo con Google Gemini e imágenes de stock.
+	 * Obtiene una imagen de stock única intentando entre los proveedores configurados para evitar repeticiones.
+	 *
+	 * @param WP_Autocontent_Media_Importer $importer Instancia del importador.
+	 * @param string                        $provider_choice Elección del usuario ('mix', 'pexels', 'unsplash', 'pixabay').
+	 * @param string                        $english_kw Término en inglés.
+	 * @param int                           $index Índice del bloque.
+	 * @param array                         $used_urls Lista de URLs de imágenes ya usadas.
+	 * @return array Datos de la imagen obtenida.
+	 */
+	private function fetch_unique_stock_image( WP_Autocontent_Media_Importer $importer, string $provider_choice, string $english_kw, int $index, array &$used_urls ): array {
+		$providers = array();
+
+		if ( 'mix' === $provider_choice ) {
+			$all = array( 'pexels', 'unsplash', 'pixabay' );
+			for ( $i = 0; $i < count( $all ); $i++ ) {
+				$providers[] = $all[ ( $index + $i ) % count( $all ) ];
+			}
+		} else {
+			$providers[] = $provider_choice;
+			if ( 'pexels' !== $provider_choice ) {
+				$providers[] = 'pexels';
+			}
+		}
+
+		foreach ( $providers as $prov ) {
+			$results = $importer->fetch_and_import( $prov, $english_kw, 3 );
+			if ( ! is_wp_error( $results ) && is_array( $results ) ) {
+				foreach ( $results as $img ) {
+					if ( ! empty( $img['url'] ) && ! in_array( $img['url'], $used_urls, true ) ) {
+						return $img;
+					}
+				}
+			}
+		}
+
+		return array();
+	}
+
+	/**
+	 * AJAX Handler: Generación de artículo de blog completo con Google Gemini e imágenes de stock / galería.
 	 */
 	public function ajax_generate_blog_post(): void {
 		check_ajax_referer( 'wp_autocontent_nonce', 'nonce' );
@@ -1395,13 +1496,22 @@ class WP_Autocontent_Admin_Settings {
 			wp_send_json_error( array( 'message' => __( 'No tienes permisos suficientes.', 'wp-autocontent' ) ) );
 		}
 
-		$topic            = isset( $_POST['topic'] ) ? sanitize_text_field( wp_unslash( $_POST['topic'] ) ) : '';
-		$custom_title     = isset( $_POST['custom_title'] ) ? sanitize_text_field( wp_unslash( $_POST['custom_title'] ) ) : '';
-		$word_count       = isset( $_POST['word_count'] ) ? (int) $_POST['word_count'] : 800;
-		$tone             = isset( $_POST['tone'] ) ? sanitize_text_field( wp_unslash( $_POST['tone'] ) ) : 'Profesional y cercano';
-		$status           = isset( $_POST['status'] ) ? sanitize_text_field( wp_unslash( $_POST['status'] ) ) : 'draft';
-		$include_featured = ! empty( $_POST['include_featured'] );
-		$include_body     = ! empty( $_POST['include_body_images'] );
+		$start_time = microtime( true );
+
+		$topic               = isset( $_POST['topic'] ) ? sanitize_text_field( wp_unslash( $_POST['topic'] ) ) : '';
+		$custom_title        = isset( $_POST['custom_title'] ) ? sanitize_text_field( wp_unslash( $_POST['custom_title'] ) ) : '';
+		$word_count          = isset( $_POST['word_count'] ) ? (int) $_POST['word_count'] : 800;
+		$tone                = isset( $_POST['tone'] ) ? sanitize_text_field( wp_unslash( $_POST['tone'] ) ) : 'Profesional y cercano';
+		$status              = isset( $_POST['status'] ) ? sanitize_text_field( wp_unslash( $_POST['status'] ) ) : 'draft';
+		$image_provider      = isset( $_POST['image_provider'] ) ? sanitize_text_field( wp_unslash( $_POST['image_provider'] ) ) : 'mix';
+		$custom_featured_id  = isset( $_POST['custom_featured_id'] ) ? (int) $_POST['custom_featured_id'] : 0;
+		$include_featured    = ! empty( $_POST['include_featured'] );
+		$include_body        = ! empty( $_POST['include_body_images'] );
+		$include_gallery     = ! empty( $_POST['include_gallery'] );
+		$gallery_size        = isset( $_POST['gallery_size'] ) ? max( 3, min( 12, (int) $_POST['gallery_size'] ) ) : 4;
+		$gallery_source      = isset( $_POST['gallery_source'] ) ? sanitize_text_field( wp_unslash( $_POST['gallery_source'] ) ) : 'auto';
+		$custom_gallery_ids  = isset( $_POST['custom_gallery_ids'] ) ? sanitize_text_field( wp_unslash( $_POST['custom_gallery_ids'] ) ) : '';
+		$passed_exec_time    = isset( $_POST['exec_time'] ) ? sanitize_text_field( wp_unslash( $_POST['exec_time'] ) ) : '';
 
 		if ( empty( $topic ) && empty( $custom_title ) ) {
 			wp_send_json_error( array( 'message' => __( 'Por favor, escribe una temática o un título para el artículo de blog.', 'wp-autocontent' ) ) );
@@ -1423,13 +1533,16 @@ class WP_Autocontent_Admin_Settings {
 			wp_send_json_error( array( 'message' => $article->get_error_message() ) );
 		}
 
-		$p_key    = get_option( 'wp_autocontent_pexels_key', '' );
-		$u_key    = get_option( 'wp_autocontent_unsplash_key', '' );
-		$x_key    = get_option( 'wp_autocontent_pixabay_key', '' );
-		$importer = new WP_Autocontent_Media_Importer( $p_key, $u_key, $x_key );
+		$p_key     = get_option( 'wp_autocontent_pexels_key', '' );
+		$u_key     = get_option( 'wp_autocontent_unsplash_key', '' );
+		$x_key     = get_option( 'wp_autocontent_pixabay_key', '' );
+		$importer  = new WP_Autocontent_Media_Importer( $p_key, $u_key, $x_key );
+		$used_urls = array();
 
-		// 1. Construir Contenido HTML del Artículo
+		// 1. Construir Contenido HTML del Artículo con maquetación y espaciado mejorado
 		$html_content = '';
+		$section_idx  = 0;
+
 		if ( ! empty( $article['sections'] ) && is_array( $article['sections'] ) ) {
 			foreach ( $article['sections'] as $sec ) {
 				$heading = isset( $sec['heading'] ) ? sanitize_text_field( $sec['heading'] ) : '';
@@ -1437,24 +1550,67 @@ class WP_Autocontent_Admin_Settings {
 				$img_kw  = isset( $sec['image_keyword'] ) ? sanitize_text_field( $sec['image_keyword'] ) : $article['keyword_for_images'];
 
 				if ( ! empty( $heading ) ) {
-					$html_content .= '<h2>' . esc_html( $heading ) . '</h2>';
+					$html_content .= '<h2 style="font-size: 32px; line-height: 1.35; margin-top: 50px; margin-bottom: 24px; font-weight: 700; color: #0f172a; border-bottom: 2px solid #f1f5f9; padding-bottom: 12px;">' . esc_html( $heading ) . '</h2>';
 				}
 
-				if ( $include_body && ! empty( $img_kw ) ) {
-					$en_kw = $this->translate_to_english( $img_kw );
-					$stock = $importer->fetch_and_import( 'pexels', $en_kw, 1 );
-					if ( ! is_wp_error( $stock ) && ! empty( $stock[0]['url'] ) ) {
-						$html_content .= '<p><img src="' . esc_url( $stock[0]['url'] ) . '" alt="' . esc_attr( $heading ) . '" class="aligncenter size-large" /></p>';
+				if ( $include_body && ! empty( $img_kw ) && 'custom' !== $image_provider ) {
+					$en_kw    = $this->translate_to_english( $img_kw );
+					$img_data = $this->fetch_unique_stock_image( $importer, $image_provider, $en_kw, $section_idx, $used_urls );
+
+					if ( ! empty( $img_data['url'] ) ) {
+						$used_urls[]   = $img_data['url'];
+						$html_content .= '<figure style="margin: 36px 0; text-align: center;">';
+						$html_content .= '<img src="' . esc_url( $img_data['url'] ) . '" alt="' . esc_attr( $heading ) . '" class="aligncenter size-large" style="border-radius: 14px; width: 100%; max-width: 900px; height: auto; display: block; margin: 0 auto; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);" />';
+						$html_content .= '<figcaption style="text-align: center; font-size: 13px; color: #64748b; margin-top: 10px; font-style: italic;">' . esc_html( $heading ) . '</figcaption>';
+						$html_content .= '</figure>';
 					}
 				}
 
 				if ( ! empty( $content ) ) {
-					$html_content .= '<p>' . esc_html( $content ) . '</p>';
+					$paras = explode( "\n", str_replace( "\r", "", $content ) );
+					foreach ( $paras as $p_text ) {
+						$p_text = trim( $p_text );
+						if ( ! empty( $p_text ) ) {
+							$html_content .= '<p style="font-size: 17px; line-height: 1.8; margin-top: 0; margin-bottom: 28px; color: #334155;">' . esc_html( $p_text ) . '</p>';
+						}
+					}
 				}
+
+				$section_idx++;
 			}
 		}
 
-		// 2. Crear la entrada de WordPress
+		// 2. Procesar e Inyectar Galería de Fotos (Addon Elementor / WP Gallery)
+		if ( $include_gallery ) {
+			$gallery_attachment_ids = array();
+
+			if ( 'custom' === $gallery_source && ! empty( $custom_gallery_ids ) ) {
+				$gallery_attachment_ids = array_filter( array_map( 'intval', explode( ',', $custom_gallery_ids ) ) );
+			} elseif ( ! empty( $article['keyword_for_images'] ) ) {
+				$gal_kw  = $this->translate_to_english( $article['keyword_for_images'] );
+				$fetched = $importer->fetch_and_import( ( 'mix' === $image_provider ) ? 'pexels' : $image_provider, $gal_kw, $gallery_size );
+				if ( ! is_wp_error( $fetched ) && is_array( $fetched ) ) {
+					foreach ( $fetched as $f_img ) {
+						if ( ! empty( $f_img['id'] ) ) {
+							$gallery_attachment_ids[] = (int) $f_img['id'];
+						}
+					}
+				}
+			}
+
+			if ( ! empty( $gallery_attachment_ids ) ) {
+				$ids_str       = implode( ',', $gallery_attachment_ids );
+				$gallery_html  = "\n\n";
+				$gallery_html .= '<div class="wpac-elementor-gallery-addon" style="margin: 50px 0; padding: 28px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px;">';
+				$gallery_html .= '<h3 style="font-size: 24px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 20px; text-align: center;">📸 Galería de Fotografías</h3>';
+				$gallery_html .= '[gallery ids="' . esc_attr( $ids_str ) . '" columns="3" link="file" size="medium_large"]';
+				$gallery_html .= '</div>' . "\n\n";
+
+				$html_content .= $gallery_html;
+			}
+		}
+
+		// 3. Crear la entrada de WordPress
 		$post_data = array(
 			'post_title'   => esc_html( $article['title'] ),
 			'post_content' => $html_content,
@@ -1473,19 +1629,25 @@ class WP_Autocontent_Admin_Settings {
 		// Calcular recuento real de palabras
 		$clean_text   = strip_tags( $html_content );
 		$actual_words = count( preg_split( '/\s+/', trim( $clean_text ) ) );
+		$exec_seconds = ! empty( $passed_exec_time ) ? floatval( $passed_exec_time ) : round( microtime( true ) - $start_time, 1 );
 
 		// Guardar metadatos para trazabilidad de posts creados con IA
 		update_post_meta( $new_post_id, '_wpac_created_by_ai', 1 );
 		update_post_meta( $new_post_id, '_wpac_ai_topic', $topic );
 		update_post_meta( $new_post_id, '_wpac_ai_word_count', $actual_words );
+		update_post_meta( $new_post_id, '_wpac_ai_exec_time', $exec_seconds );
 		update_post_meta( $new_post_id, '_wpac_created_at', current_time( 'mysql' ) );
 
-		// 3. Descargar e inyectar Imagen Destacada
-		if ( $include_featured && ! empty( $article['keyword_for_images'] ) ) {
-			$feat_kw    = $this->translate_to_english( $article['keyword_for_images'] );
-			$feat_stock = $importer->fetch_and_import( 'pexels', $feat_kw, 1 );
-			if ( ! is_wp_error( $feat_stock ) && ! empty( $feat_stock[0]['id'] ) ) {
-				set_post_thumbnail( $new_post_id, (int) $feat_stock[0]['id'] );
+		// 4. Configurar Imagen Destacada
+		if ( $include_featured ) {
+			if ( $custom_featured_id > 0 ) {
+				set_post_thumbnail( $new_post_id, $custom_featured_id );
+			} elseif ( ! empty( $article['keyword_for_images'] ) ) {
+				$feat_kw   = $this->translate_to_english( $article['keyword_for_images'] );
+				$feat_data = $this->fetch_unique_stock_image( $importer, $image_provider, $feat_kw, 99, $used_urls );
+				if ( ! empty( $feat_data['id'] ) ) {
+					set_post_thumbnail( $new_post_id, (int) $feat_data['id'] );
+				}
 			}
 		}
 
@@ -1494,8 +1656,9 @@ class WP_Autocontent_Admin_Settings {
 		wp_send_json_success(
 			array(
 				'message'    => sprintf(
-					__( '🚀 ¡Artículo "%s" creado con éxito (%d palabras - ID: #%d)! Puedes <a href="%s" target="_blank">ver/editar la entrada aquí</a>.', 'wp-autocontent' ),
+					__( '🚀 ¡Artículo "%s" creado con éxito en <strong>%.1fs</strong> (%d palabras - ID: #%d)! Puedes <a href="%s" target="_blank">ver/editar la entrada aquí</a>.', 'wp-autocontent' ),
 					esc_html( $article['title'] ),
+					$exec_seconds,
 					$actual_words,
 					$new_post_id,
 					esc_url( $edit_link )
@@ -1503,6 +1666,7 @@ class WP_Autocontent_Admin_Settings {
 				'post_id'    => $new_post_id,
 				'edit_link'  => $edit_link,
 				'word_count' => $actual_words,
+				'exec_time'  => $exec_seconds,
 			)
 		);
 	}
@@ -1540,6 +1704,7 @@ class WP_Autocontent_Admin_Settings {
 				$pid        = get_the_ID();
 				$topic      = get_post_meta( $pid, '_wpac_ai_topic', true );
 				$word_count = get_post_meta( $pid, '_wpac_ai_word_count', true );
+				$exec_time  = get_post_meta( $pid, '_wpac_ai_exec_time', true );
 				$date       = get_the_date( 'd/m/Y H:i' );
 
 				if ( empty( $word_count ) ) {
@@ -1552,6 +1717,7 @@ class WP_Autocontent_Admin_Settings {
 					'title'      => get_the_title( $pid ),
 					'topic'      => ! empty( $topic ) ? $topic : 'General IA',
 					'word_count' => (int) $word_count,
+					'exec_time'  => ! empty( $exec_time ) ? floatval( $exec_time ) : 0,
 					'status'     => get_post_status( $pid ),
 					'date'       => $date,
 					'edit_link'  => get_edit_post_link( $pid, 'raw' ),
